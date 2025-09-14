@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { useGameWithLeaderboard } from '@/stores/gameStore';
 import { useSound } from '@/hooks/useSoundManager';
 import AttractModeScreen from './screens/AttractModeScreen';
@@ -34,7 +34,7 @@ export const GameRouter: React.FC = () => {
   }, [screen, soundManager, isSoundInitialized]);
 
   // Screen transition variants
-  const screenVariants = {
+  const screenVariants: Variants = {
     initial: { 
       opacity: 0, 
       scale: 0.95,
@@ -61,7 +61,7 @@ export const GameRouter: React.FC = () => {
   };
 
   // Specialized transitions for different screen types
-  const getScreenTransition = (screenType: string) => {
+  const getScreenTransition = (screenType: string): Variants => {
     switch (screenType) {
       case 'attract':
         return {
@@ -116,11 +116,11 @@ export const GameRouter: React.FC = () => {
       
       case 'gameOver':
         return {
-          initial: { opacity: 0, scale: 1.2, blur: 10 },
+          initial: { opacity: 0, scale: 1.2, filter: 'blur(10px)' },
           animate: { 
             opacity: 1, 
             scale: 1, 
-            blur: 0,
+            filter: 'blur(0px)',
             transition: { 
               duration: 0.8, 
               ease: "backOut",
