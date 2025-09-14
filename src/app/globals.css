@@ -1,26 +1,407 @@
 @import "tailwindcss";
 
+/* ========================================
+   AI vs HUMAN - ARCADE GAME STYLING
+   AAA Quality Neon Arcade Aesthetic
+======================================== */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Arcade Color Palette */
+  --neon-cyan: #00FFF0;
+  --neon-magenta: #FF10F0;
+  --neon-green: #39FF14;
+  --neon-orange: #FF6B35;
+  --neon-red: #FF073A;
+  --neon-purple: #6B0F9F;
+  --neon-yellow: #FFFF00;
+  
+  /* Dark Theme Base */
+  --bg-primary: #0A0A0F;
+  --bg-secondary: #1A1A2E;
+  --bg-surface: #16213E;
+  --bg-card: #0F1419;
+  
+  /* Text Colors */
+  --text-primary: #FFFFFF;
+  --text-secondary: #B8BCC8;
+  --text-muted: #6B7280;
+  
+  /* Glow Effects */
+  --glow-cyan: 0 0 20px var(--neon-cyan), 0 0 40px var(--neon-cyan), 0 0 60px var(--neon-cyan);
+  --glow-magenta: 0 0 20px var(--neon-magenta), 0 0 40px var(--neon-magenta), 0 0 60px var(--neon-magenta);
+  --glow-green: 0 0 20px var(--neon-green), 0 0 40px var(--neon-green), 0 0 60px var(--neon-green);
+  --glow-red: 0 0 20px var(--neon-red), 0 0 40px var(--neon-red), 0 0 60px var(--neon-red);
+  
+  /* Animation Speeds */
+  --transition-fast: 0.15s ease-out;
+  --transition-normal: 0.3s ease-out;
+  --transition-slow: 0.6s ease-out;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* ========================================
+   GLOBAL RESETS & BASE STYLES
+======================================== */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html, body {
+  height: 100%;
+  overflow: hidden; /* Full-screen arcade experience */
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-orbitron), var(--font-share-tech-mono), monospace;
+  font-weight: 400;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg-primary);
+  z-index: -1;
+}
+
+/* ========================================
+   TYPOGRAPHY SYSTEM
+======================================== */
+
+.font-arcade {
+  font-family: var(--font-orbitron), monospace;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.font-mono {
+  font-family: var(--font-share-tech-mono), monospace;
+  font-weight: 400;
+}
+
+.text-glow {
+  text-shadow: var(--glow-cyan);
+}
+
+.text-glow-magenta {
+  text-shadow: var(--glow-magenta);
+}
+
+.text-glow-green {
+  text-shadow: var(--glow-green);
+}
+
+.text-glow-red {
+  text-shadow: var(--glow-red);
+}
+
+/* ========================================
+   NEON BUTTON SYSTEM
+======================================== */
+
+.btn-neon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem 2rem;
+  min-height: 3.5rem;
+  background: transparent;
+  border: 2px solid var(--neon-cyan);
+  color: var(--neon-cyan);
+  font-family: var(--font-orbitron), monospace;
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  overflow: hidden;
+  border-radius: 4px;
+}
+
+.btn-neon::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--neon-cyan),
+    transparent
+  );
+  transition: left var(--transition-slow);
+  opacity: 0.1;
+}
+
+.btn-neon:hover {
+  color: var(--bg-primary);
+  background: var(--neon-cyan);
+  box-shadow: var(--glow-cyan);
+  transform: scale(1.05);
+}
+
+.btn-neon:hover::before {
+  left: 100%;
+}
+
+.btn-neon:active {
+  transform: scale(0.98);
+}
+
+/* Button Variants */
+.btn-neon-magenta {
+  border-color: var(--neon-magenta);
+  color: var(--neon-magenta);
+}
+
+.btn-neon-magenta:hover {
+  background: var(--neon-magenta);
+  box-shadow: var(--glow-magenta);
+}
+
+.btn-neon-green {
+  border-color: var(--neon-green);
+  color: var(--neon-green);
+}
+
+.btn-neon-green:hover {
+  background: var(--neon-green);
+  box-shadow: var(--glow-green);
+}
+
+.btn-neon-red {
+  border-color: var(--neon-red);
+  color: var(--neon-red);
+}
+
+.btn-neon-red:hover {
+  background: var(--neon-red);
+  box-shadow: var(--glow-red);
+}
+
+/* ========================================
+   GAME UI COMPONENTS
+======================================== */
+
+.game-container {
+  width: 100vw;
+  height: 100vh;
+  background: var(--bg-primary);
+  position: relative;
+  overflow: hidden;
+}
+
+.screen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.arcade-border {
+  border: 3px solid var(--neon-cyan);
+  border-radius: 8px;
+  background: var(--bg-card);
+  box-shadow: 
+    inset 0 0 20px rgba(0, 255, 240, 0.1),
+    0 0 40px rgba(0, 255, 240, 0.3);
+}
+
+/* ========================================
+   ANIMATION KEYFRAMES
+======================================== */
+
+/* Glitch effect for title */
+@keyframes glitch {
+  0%, 100% { 
+    text-shadow: 
+      2px 2px var(--neon-magenta), 
+      -2px -2px var(--neon-cyan); 
+  }
+  25% { 
+    text-shadow: 
+      -2px 2px var(--neon-green), 
+      2px -2px var(--neon-magenta); 
+  }
+  50% { 
+    text-shadow: 
+      2px -2px var(--neon-cyan), 
+      -2px 2px var(--neon-purple); 
+  }
+}
+
+.text-glitch {
+  animation: glitch 2s infinite;
+}
+
+/* Pulsing glow effect */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: var(--glow-cyan);
+  }
+  50% {
+    box-shadow: 
+      0 0 40px var(--neon-cyan), 
+      0 0 80px var(--neon-cyan), 
+      0 0 120px var(--neon-cyan);
+  }
+}
+
+.pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Floating animation */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+.float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* CRT screen effect overlay */
+@keyframes flicker {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.98; }
+}
+
+.crt-effect {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    rgba(18, 16, 16, 0) 50%, 
+    rgba(0, 0, 0, 0.25) 50%
+  );
+  background-size: 100% 2px;
+  pointer-events: none;
+  animation: flicker 0.15s infinite;
+  z-index: 1000;
+}
+
+/* Screen shake effect */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
+  20%, 40%, 60%, 80% { transform: translateX(2px); }
+}
+
+.shake {
+  animation: shake 0.5s ease-in-out;
+}
+
+/* Digital rain effect background */
+@keyframes digital-rain {
+  0% { transform: translateY(-100vh); }
+  100% { transform: translateY(100vh); }
+}
+
+.digital-rain {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.digital-rain::before {
+  content: '01001010010110100101';
+  position: absolute;
+  color: var(--neon-green);
+  font-family: var(--font-share-tech-mono), monospace;
+  font-size: 0.8rem;
+  opacity: 0.1;
+  animation: digital-rain 10s linear infinite;
+}
+
+/* ========================================
+   RESPONSIVE DESIGN
+======================================== */
+
+@media (max-width: 768px) {
+  .btn-neon {
+    padding: 0.75rem 1.5rem;
+    font-size: 0.9rem;
+    min-height: 3rem;
+  }
+  
+  .screen {
+    padding: 1rem;
+  }
+  
+  .font-arcade {
+    font-size: 3rem !important;
+  }
+  
+  .arcade-border {
+    margin: 0 1rem;
+  }
+}
+
+/* ========================================
+   UTILITY CLASSES
+======================================== */
+
+.full-screen {
+  width: 100vw;
+  height: 100vh;
+}
+
+.center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.arcade-grid {
+  background-image: 
+    linear-gradient(var(--neon-cyan) 1px, transparent 1px),
+    linear-gradient(90deg, var(--neon-cyan) 1px, transparent 1px);
+  background-size: 20px 20px;
+  opacity: 0.1;
+}
+
+.neon-border {
+  border: 1px solid var(--neon-cyan);
+  box-shadow: 
+    0 0 10px var(--neon-cyan),
+    inset 0 0 10px var(--neon-cyan);
+}
+
+/* Hide scrollbars but keep functionality */
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
 }
