@@ -110,7 +110,7 @@ export const GameStoreTest: React.FC = () => {
             onClick={() => setScreen('gameOver')}
             className="px-4 py-2 bg-neon-pink text-black rounded hover:bg-opacity-80"
           >
-            Game Over
+            LOST
           </button>
         </div>
         

@@ -1,104 +1,94 @@
-// Game Types for AI vs Human Arcade Game
+// src/types/game.ts
 
-export type GameScreen = 'attract' | 'nameEntry' | 'game' | 'gameOver';
-export type GameResult = 'correct' | 'wrong' | null;
+export type Difficulty = 'easy' | 'medium' | 'hard' | 'extreme';
 
 export interface GameImage {
+  id: string;
   url: string;
   isAI: boolean;
-  source: string;
-  round: number;
-  difficulty: 'easy' | 'medium' | 'hard' | 'extreme';
+  source?: string;
+  round?: number;
+  difficulty?: Difficulty;
 }
 
-export interface GameState {
-  // Game flow
-  screen: GameScreen;
-  isPlaying: boolean;
-  isPaused: boolean;
-  gameStarted: boolean;
-  gameEnded: boolean;
-  
-  // Player data
-  playerName: string;
-  lives: number;
-  score: number;
-  highScore: number;
-  
-  // Game progression
+export interface GameImagePair {
+  ai: GameImage;
+  human: GameImage;
   round: number;
-  combo: number;
-  maxCombo: number;
-  timer: number;
-  maxTimer: number;
-  
-  // Current game data
-  currentImage: GameImage | null;
-  correctAnswer: boolean | null;
-  lastGuess: boolean | null;
-  lastResult: GameResult;
-  
-  // Statistics
-  totalGamesPlayed: number;
-  totalCorrectGuesses: number;
-  totalWrongGuesses: number;
-  averageScore: number;
-  bestRound: number;
-  
-  // Settings
-  soundEnabled: boolean;
-  fullscreenEnabled: boolean;
-  debugMode: boolean;
-  
-  // Performance tracking
-  imagesPreloaded: number;
-  gameStartTime: number | null;
-  lastActionTime: number | null;
+  difficulty: Difficulty;
+  aiIndex: 0 | 1;                // index in images[] where the AI image sits
+  images: [GameImage, GameImage]; // [left, right]
 }
 
+/** Screens in the game flow */
+export type GameScreen = 'attract' | 'nameEntry' | 'game' | 'gameOver';
+
+/** One row in the leaderboard */
 export interface LeaderboardEntry {
-  name: string;
+  name: string;          // typically 3-char initials
   score: number;
   round: number;
-  date: string;
+  date: string;          // ISO string
   maxCombo: number;
 }
 
+/** Aggregate stats returned by getStats() */
 export interface GameStats {
   gamesPlayed: number;
   totalCorrect: number;
   totalWrong: number;
-  accuracy: number;
+  accuracy: number;      // percentage 0..100
   averageScore: number;
   bestScore: number;
   bestRound: number;
   maxCombo: number;
 }
 
-export interface SoundEffect {
-  name: string;
-  buffer: AudioBuffer;
-}
+/** Full game state held in the zustand store */
+export interface GameState {
+  // Screen & lifecycle
+  screen: GameScreen;
+  isPlaying: boolean;
+  isPaused: boolean;
+  gameStarted: boolean;
+  gameEnded: boolean;
 
-export interface AnimationConfig {
-  screenTransition: number;
-  buttonHover: number;
-  correctAnswer: number;
-  wrongAnswer: number;
-  particleDuration: number;
-  screenShake: { duration: number; intensity: number };
-  heartBreak: number;
-  scoreFloat: number;
-}
+  // Player & score
+  playerName: string;      // stored as 3-char uppercase
+  lives: number;
+  score: number;
+  highScore: number;
 
-export interface DifficultyCategory {
-  description: string;
-  examples: string;
-}
+  // Rounds & combo
+  round: number;
+  combo: number;
+  maxCombo: number;
 
-export interface Controls {
-  left: string[];
-  right: string[];
-  start: string[];
-  konamiCode: string[];
+  // Timer
+  timer: number;
+  maxTimer: number;
+
+  // Current image/pair & answers
+  currentImage: GameImage | null;
+  currentPair: GameImagePair | null;
+  correctAnswer: boolean | null;      // true if AI, false if human, null if N/A
+  lastGuess: boolean | null;          // what the user last picked
+  lastResult: 'correct' | 'wrong' | null;
+
+  // Stats
+  totalGamesPlayed: number;
+  totalCorrectGuesses: number;
+  totalWrongGuesses: number;
+  averageScore: number;
+  bestRound: number;
+
+  // Preferences
+  soundEnabled: boolean;
+  fullscreenEnabled: boolean;
+  debugMode: boolean;
+
+  // Misc/telemetry
+  imagesPreloaded: number;
+  gameStartTime: number | null;       // ms epoch
+  lastActionTime: number | null;      // ms epoch
 }

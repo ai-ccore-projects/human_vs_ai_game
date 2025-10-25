@@ -1,44 +1,71 @@
+// src/components/screens/AttractModeScreen.tsx
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useGameWithLeaderboard } from '@/stores/gameStore';
 import { useImageManager } from '@/hooks/useImageManager';
 
-/**
- * Attract Mode Screen - Simple and clean homepage design
- * Minimal interface focused on the core game experience
- */
-export const AttractModeScreen: React.FC = () => {
-  const gameStore = useGameWithLeaderboard();
-  const { initializeImages, isReady } = useImageManager();
+import { useNarrator } from '@/hooks/useNarrator';
+import NarrationOverlay from '@/components/ui/NarrationOverlay';
+import { WELCOME_NARRATION } from '@/utils/narrationScript';
 
-  // Initialize image system on mount
+const AttractModeScreen: React.FC = () => {
+  const { setScreen, highScore } = useGameWithLeaderboard();
+
+  // read-only image status on this screen
+  const { status } = useImageManager();
+  const domain = status.leafPath;
+
+  // narrator
+  const narrator = useNarrator();
+  const [showNarration, setShowNarration] = useState(false);
+  const startedRef = useRef(false);
+  const navigatingRef = useRef(false);
+
+  // make sure captions are ON for first screen
   useEffect(() => {
-    initializeImages();
-  }, [initializeImages]);
+    try { narrator.setCaptionsOn(true); } catch {}
+  }, [narrator]);
 
-  // Handle start game
-  const handleStartGame = () => {
-    if (!isReady) {
-      console.warn('Image system not ready yet');
-      return;
+  // Start flow: await the WHOLE narration, then move on
+  const handleStartGame = useCallback(async () => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+
+    setShowNarration(true);
+    narrator.stop(); // clear leftovers
+
+    try {
+      await narrator.start(WELCOME_NARRATION); // <-- wait until the full script finishes
+    } catch {
+      // ignore; we'll still proceed
     }
-    gameStore.setScreen('nameEntry');
-  };
 
-  // Handle keyboard input
+    if (!navigatingRef.current) {
+      navigatingRef.current = true;
+      setShowNarration(false);
+      setScreen('nameEntry');
+    }
+  }, [narrator, setScreen]);
+
+  // Keyboard shortcuts to start
   useEffect(() => {
-    const handleKeyPress = (event: KeyboardEvent) => {
-      if (['Enter', ' ', 'ArrowRight', 'ArrowLeft'].includes(event.key)) {
-        event.preventDefault();
-        handleStartGame();
+    const onKey = (e: KeyboardEvent) => {
+      if (['Enter', ' ', 'ArrowRight', 'ArrowLeft'].includes(e.key)) {
+        e.preventDefault();
+        void handleStartGame();
       }
     };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [handleStartGame]);
 
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [isReady]);
+  const imageStatus = !domain
+    ? 'WAITING (select dataset on next screen)'
+    : status.initialized
+    ? 'READY'
+    : 'LOADING';
 
   return (
     <div className="screen center relative">
@@ -50,37 +77,30 @@ export const AttractModeScreen: React.FC = () => {
           loop
           muted
           playsInline
-          style={{
-            filter: 'brightness(0.8) contrast(1.1)',
-          }}
+          style={{ filter: 'brightness(0.8) contrast(1.1)' }}
         >
           <source src="/Video/26475-360248610_small.mp4" type="video/mp4" />
         </video>
-        {/* Video overlay to ensure readability */}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/20 to-black/40 z-10"></div>
+        <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/20 to-black/40 z-10" />
       </div>
-      
-      {/* Background Effects */}
-      <div className="crt-effect"></div>
-      <div className="digital-rain"></div>
-      
-      {/* Main Content - Arcade Welcome Screen Layout */}
+
+      <div className="crt-effect" />
+      <div className="digital-rain" />
+
+      {/* Main */}
       <div className="flex flex-col items-center justify-center min-h-screen w-full max-w-4xl mx-auto px-8 z-20">
-        
-        {/* Arcade Welcome Screen Structure */}
         <div className="flex flex-col items-center justify-center gap-16 w-full py-8">
-          
-          {/* Game Title - Top */}
+          {/* Title */}
           <motion.div
             initial={{ opacity: 0, y: -50 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 1, ease: "easeOut" }}
+            transition={{ duration: 1, ease: 'easeOut' }}
             className="text-center"
           >
             <h1 className="font-arcade text-6xl md:text-8xl text-glow text-glitch mb-4">
               AI vs HUMAN
             </h1>
-            <motion.div 
+            <motion.div
               className="font-mono text-xl text-glow-magenta"
               animate={{ opacity: [0.7, 1, 0.7] }}
               transition={{ duration: 2, repeat: Infinity }}
@@ -88,86 +108,93 @@ export const AttractModeScreen: React.FC = () => {
               ARCADE EXPERIENCE
             </motion.div>
           </motion.div>
-          
-          {/* Start Game Button - Center */}
+
+          {/* Start button */}
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.8, delay: 0.3 }}
             className="w-full max-w-md"
           >
-            <button 
-              onClick={handleStartGame}
-              disabled={!isReady}
-              className={`btn-neon pulse-glow w-full text-2xl py-4 ${!isReady ? 'opacity-50 cursor-not-allowed' : ''}`}
+            <button
+              onClick={() => void handleStartGame()}
+              disabled={showNarration}
+              className={`btn-neon pulse-glow w-full text-2xl py-4 ${showNarration ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              {isReady ? 'START GAME' : 'LOADING...'}
+              START
             </button>
           </motion.div>
-          
-          {/* System Status - Center */}
-         
-      <motion.div
-        initial={{ opacity: 0, y: 30 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.8, delay: 0.6 }}
-        className="arcade-border p-8 w-full max-w-md mt-2 rounded-lg"
-      >
-        <h3 className="font-arcade text-xl text-glow-green mb-6 text-center">
-          SYSTEM STATUS
-        </h3>
-        <div className="font-mono text-base space-y-3">
-          <div className="flex justify-between items-center">
-            <span>GRAPHICS:</span>
-            <span className="text-glow-cyan">ONLINE</span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span>AUDIO:</span>
-            <span className="text-glow-cyan">ONLINE</span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span>NETWORK:</span>
-            <span className="text-glow-cyan">ONLINE</span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span>IMAGES:</span>
-            <span className={isReady ? 'text-glow-cyan' : 'text-yellow-400'}>
-              {isReady ? 'READY' : 'LOADING'}
-            </span>
-          </div>
-        </div>
-</motion.div>
-          
-          {/* Ready to Play - Bottom */}
+
+          {/* System status */}
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 0.6 }}
+            className="arcade-border p-8 w-full max-w-md mt-2 rounded-lg"
+          >
+            <h3 className="font-arcade text-xl text-glow-green mb-6 text-center">SYSTEM STATUS</h3>
+            <div className="font-mono text-base space-y-3">
+              <div className="flex justify-between"><span>GRAPHICS:</span><span className="text-glow-cyan">ONLINE</span></div>
+              <div className="flex justify-between"><span>AUDIO:</span><span className="text-glow-cyan">ONLINE</span></div>
+              <div className="flex justify-between"><span>NETWORK:</span><span className="text-glow-cyan">ONLINE</span></div>
+              <div className="flex justify-between">
+                <span>IMAGES:</span>
+                <span className={!domain ? 'text-yellow-400' : status.initialized ? 'text-glow-cyan' : 'text-yellow-400'}>
+                  {imageStatus}
+                </span>
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Prompt */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 1, delay: 0.9 }}
             className="float text-center"
           >
-            <motion.p 
+            <motion.p
               className="font-mono text-glow-green text-xl font-bold"
               animate={{ opacity: [0.5, 1, 0.5] }}
               transition={{ duration: 2, repeat: Infinity }}
             >
-              ▲ READY TO PLAY ▲
+              ▲ PRESS START ▲
             </motion.p>
           </motion.div>
-          
         </div>
 
-        {/* High Score Display (if exists) */}
-        {gameStore.highScore > 0 && (
+        {/* High score */}
+        {highScore > 0 && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 1, delay: 1.2 }}
             className="absolute bottom-8 right-8 font-mono text-xs text-glow-yellow"
           >
-            <div>HIGH SCORE: {gameStore.highScore.toLocaleString()}</div>
+            <div>HIGH SCORE: {highScore.toLocaleString()}</div>
           </motion.div>
         )}
       </div>
+
+      {/* Narration overlay (visible for full sequence; user can skip) */}
+      <NarrationOverlay
+        visible={showNarration}
+        statusText={narrator.status.toUpperCase()}
+        caption={narrator.currentCaption}
+        captionsOn={narrator.captionsOn}
+        onToggleCC={() => narrator.setCaptionsOn(!narrator.captionsOn)}
+        onPause={narrator.pause}
+        onResume={narrator.resume}
+        onSkip={() => {
+          if (!navigatingRef.current) {
+            navigatingRef.current = true;
+            narrator.stop();
+            setShowNarration(false);
+            setScreen('nameEntry');
+          }
+        }}
+        isPaused={narrator.status === 'paused'}
+      />
     </div>
   );
 };

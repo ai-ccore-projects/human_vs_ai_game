@@ -1,217 +1,145 @@
+// src/hooks/useImageManager.ts
+'use client';
+
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { GameImageManager } from '@/utils/imageManager';
-import { useGameWithLeaderboard } from '@/stores/gameStore';
-import { GameImage } from '@/types/game';
+import { sharedImageManager, GameImageManager } from '@/utils/imageManager';
+import type { GameImagePair } from '@/types/game';
 
-/**
- * Hook to manage the game's image fetching and preloading system
- * Integrates the ImageManager with the game store
- */
-export const useImageManager = () => {
-  const gameStore = useGameWithLeaderboard();
-  const imageManagerRef = useRef<GameImageManager | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [imageManagerStatus, setImageManagerStatus] = useState({
-    aiCache: 0,
-    humanCache: 0,
-    preloadQueue: 0,
-    usedImages: 0,
-    initialized: false,
-    lexicaWorking: false,
-    fallbackMode: false,
-  });
+// Match GameImageManager.getStatus() while keeping legacy fields optional
+type Status = {
+  initialized: boolean;
+  preloadPairQueue?: number;
+  remainingImages?: number;
+  leafPath?: string | null;
 
-  // Initialize ImageManager
-  useEffect(() => {
-    if (!imageManagerRef.current) {
-      imageManagerRef.current = new GameImageManager();
-      console.log('🎮 ImageManager created');
-    }
-  }, []);
-
-  // Initialize image caches when game starts
-  const initializeImages = useCallback(async () => {
-    if (!imageManagerRef.current) return;
-
-    setIsLoading(true);
-    setLoadError(null);
-
-    try {
-      console.log('🎮 Initializing image system...');
-      await imageManagerRef.current.initializeImageCaches();
-      
-      // Preload first batch of images
-      try {
-        await imageManagerRef.current.preloadImages(5);
-      } catch (preloadError) {
-        console.warn('⚠️ Preload failed, but continuing:', preloadError);
-        // Continue even if preload fails
-      }
-      
-      // Update status
-      const status = imageManagerRef.current.getStatus();
-      setImageManagerStatus(status);
-      
-      console.log('✅ Image system ready!', status);
-      
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error('❌ Failed to initialize images:', error);
-      setLoadError(errorMessage);
-      
-      // Try to get status even after error
-      if (imageManagerRef.current) {
-        const status = imageManagerRef.current.getStatus();
-        setImageManagerStatus(status);
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  // Load next image for the game
-  const loadNextImage = useCallback(async () => {
-    if (!imageManagerRef.current || !gameStore.isPlaying) return;
-
-    try {
-      // Try to get preloaded image first
-      let gameImage = imageManagerRef.current.getNextImage();
-      
-      // If no preloaded image, fetch directly
-      if (!gameImage) {
-        console.log('🔄 No preloaded image, fetching for round', gameStore.round);
-        gameImage = await imageManagerRef.current.getNextImageAsync(gameStore.round);
-      }
-
-      if (gameImage) {
-        // Update game store with new image
-        gameStore.setCurrentImage(gameImage);
-        
-        // Update status
-        const status = imageManagerRef.current.getStatus();
-        setImageManagerStatus(status);
-        
-        console.log(`🎮 Loaded image for round ${gameStore.round}:`, {
-          source: gameImage.source,
-          isAI: gameImage.isAI,
-          difficulty: gameImage.difficulty
-        });
-      }
-      
-    } catch (error) {
-      console.error('❌ Failed to load next image:', error);
-      setLoadError(error instanceof Error ? error.message : 'Failed to load image');
-    }
-  }, [gameStore]);
-
-  // Reset image manager for new game
-  const resetImages = useCallback(() => {
-    if (!imageManagerRef.current) return;
-    
-    imageManagerRef.current.reset(false); // Keep caches, just clear used images
-    const status = imageManagerRef.current.getStatus();
-    setImageManagerStatus(status);
-    
-    console.log('🔄 Image manager reset for new game');
-  }, []);
-
-  // Refresh all caches (for debugging or if sources fail)
-  const refreshCaches = useCallback(async () => {
-    if (!imageManagerRef.current) return;
-
-    setIsLoading(true);
-    try {
-      await imageManagerRef.current.refreshCaches();
-      const status = imageManagerRef.current.getStatus();
-      setImageManagerStatus(status);
-      console.log('✅ Image caches refreshed');
-    } catch (error) {
-      console.error('❌ Failed to refresh caches:', error);
-      setLoadError(error instanceof Error ? error.message : 'Failed to refresh');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  // Get detailed cache information
-  const getCacheInfo = useCallback(() => {
-    if (!imageManagerRef.current) return null;
-    return imageManagerRef.current.getCacheInfo();
-  }, []);
-
-  // Update status periodically
-  useEffect(() => {
-    if (!imageManagerRef.current) return;
-
-    const updateStatus = () => {
-      if (imageManagerRef.current) {
-        const status = imageManagerRef.current.getStatus();
-        setImageManagerStatus(status);
-      }
-    };
-
-    // Update status every 5 seconds during gameplay
-    const interval = gameStore.isPlaying 
-      ? setInterval(updateStatus, 5000)
-      : null;
-
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [gameStore.isPlaying]);
-
-  // Auto-load next image when game progresses
-  useEffect(() => {
-    if (gameStore.isPlaying && !gameStore.currentImage) {
-      loadNextImage();
-    }
-  }, [gameStore.isPlaying, gameStore.round, loadNextImage]);
-
-  return {
-    // State
-    isLoading,
-    loadError,
-    imageManagerStatus,
-    
-    // Actions
-    initializeImages,
-    loadNextImage,
-    resetImages,
-    refreshCaches,
-    getCacheInfo,
-    
-    // Computed values
-    isReady: imageManagerStatus.initialized && imageManagerStatus.preloadQueue > 0,
-    hasError: !!loadError,
-    cacheHealth: {
-      aiImages: imageManagerStatus.aiCache > 10,
-      humanImages: imageManagerStatus.humanCache > 10,
-      preloaded: imageManagerStatus.preloadQueue > 2,
-    },
-  };
+  // Legacy/extra fields kept optional to avoid UI breaks
+  aiCache?: number;
+  humanCache?: number;
+  preloadQueue?: number;
+  usedImages?: number;
+  lexicaWorking?: boolean;
+  fallbackMode?: boolean;
 };
 
-/**
- * Hook for debugging image manager status
- */
-export const useImageManagerDebug = () => {
-  const { getCacheInfo, imageManagerStatus, refreshCaches } = useImageManager();
-  const [debugInfo, setDebugInfo] = useState<any>(null);
+export const useImageManager = () => {
+  // Use the shared singleton, wrapped in a ref to keep a stable reference
+  const mgrRef = useRef<GameImageManager>(sharedImageManager);
 
-  const updateDebugInfo = useCallback(() => {
-    const info = getCacheInfo();
-    setDebugInfo(info);
-  }, [getCacheInfo]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [status, setStatus] = useState<Status>({
+    initialized: false,
+    preloadPairQueue: 0,
+    remainingImages: 0,
+    leafPath: null,
+  });
 
+  // -------- Select dataset (leaf) from NameEntry screen --------
+  const setLeafFolder = useCallback(async (leafPath: string) => {
+    const mgr = mgrRef.current;
+    try {
+      await mgr.setLeafFolderPath(leafPath); // new API (has legacy alias too)
+      mgr.reset(false);                       // keep dataset, clear queues
+      await mgr.preloadPairs(2);              // optional: make round 1 snappy
+      setStatus(mgr.getStatus() as Status);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to set dataset';
+      setLoadError(msg);
+    }
+  }, []);
+
+  // -------- Initialize caches right before playing --------
+  const initializeImages = useCallback(async () => {
+    const mgr = mgrRef.current;
+    setIsLoading(true);
+    setLoadError(null);
+    try {
+      await mgr.initializeImageCaches();
+      setStatus(mgr.getStatus() as Status);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Init failed';
+      setLoadError(msg);
+      setStatus(mgr.getStatus() as Status);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // -------- Fetch the next AI/Human pair --------
+  const loadNextPair = useCallback(
+    async (round = 1): Promise<GameImagePair | null> => {
+      const mgr = mgrRef.current;
+      try {
+        let pair = mgr.getNextPair();
+        if (!pair) pair = await mgr.getNextPairAsync(round);
+        if (pair) {
+          setStatus(mgr.getStatus() as Status);
+          return pair;
+        }
+        return null;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Failed to load image pair';
+        setLoadError(msg);
+        return null;
+      }
+    },
+    []
+  );
+
+  // -------- Reset queues (keep selected dataset) --------
+  const resetImages = useCallback(() => {
+    const mgr = mgrRef.current;
+    mgr.reset(false); // keep dataset leaf
+    setStatus(mgr.getStatus() as Status);
+  }, []);
+
+  // -------- Rebuild availability & preload a few pairs --------
+  const refreshCaches = useCallback(async () => {
+    const mgr = mgrRef.current;
+    setIsLoading(true);
+    try {
+      await mgr.refreshCaches();
+      setStatus(mgr.getStatus() as Status);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to refresh';
+      setLoadError(msg);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // -------- Keep status fresh while playing (optional) --------
   useEffect(() => {
-    updateDebugInfo();
-  }, [imageManagerStatus, updateDebugInfo]);
+    const mgr = mgrRef.current;
+    const iv =
+      status.initialized
+        ? setInterval(() => setStatus(mgr.getStatus() as Status), 5000)
+        : null;
+    return () => {
+      if (iv) clearInterval(iv);
+    };
+  }, [status.initialized]);
+
+  // Ready simply mirrors manager's initialization
+  const isReady = !!status.initialized;
 
   return {
-    debugInfo,
-    imageManagerStatus,
-    updateDebugInfo,
+    // derived alias for convenience (optional)
+    domain: status.leafPath ?? null,
+
+    // state
+    isLoading,
+    loadError,
+    status,
+
+    // actions
+    setLeafFolder,
+    initializeImages,
+    loadNextPair,
+    resetImages,
     refreshCaches,
+
+    // computed
+    isReady,
   };
 };
