@@ -1,61 +1,72 @@
 // src/app/api/images/next/route.ts
-export const runtime = 'nodejs';
+export const runtime = 'edge';
+export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
-import { z } from 'zod';
-import { db } from '@/lib/db';
+type Manifest = {
+  files?: { ai_generated?: string[]; human?: string[] };
+  publicBaseUrl?: string; // e.g. "/data_set/anime_art/digital_art"
+};
 
-type ImageRow = { id: number; url: string | null; is_ai: number; active: number };
+function json(d: unknown, s = 200) {
+  return new Response(JSON.stringify(d), {
+    status: s,
+    headers: { 'content-type': 'application/json' },
+  });
+}
 
+function pick<T>(arr: T[]): T | null {
+  if (!arr || arr.length === 0) return null;
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+/**
+ * GET /api/images/next?path=<top>/<leaf>
+ * Returns a random pair: { images: [{url,type},{url,type}], aiIndex }
+ */
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
-    const session = z.coerce.number().int().positive().parse(url.searchParams.get('session'));
+    const reqPath = (url.searchParams.get('path') || '').replace(/^\/+|\/+$/g, '');
+    if (!reqPath) return json({ error: 'Missing ?path=<top>/<leaf>' }, 400);
 
-    // Pick a random image not yet seen in this session
-    const stmt = db.prepare(`
-      SELECT id, url, is_ai, active
-      FROM images
-      WHERE active = 1
-        AND url IS NOT NULL                -- ✅ make sure URL exists
-        AND TRIM(url) <> ''                -- ✅ skip empty strings
-        AND id NOT IN (
-          SELECT image_id FROM image_session_seen WHERE session_id = ?
-        )
-      ORDER BY RANDOM()
-      LIMIT 1
-    `);
+    // Load the leaf manifest that the dataset route also uses
+    const manifestUrl = new URL(`/data_set/${reqPath}/manifest.json`, url.origin);
+    const res = await fetch(manifestUrl.toString(), { cache: 'no-store' });
+    if (!res.ok) return json({ error: 'Leaf manifest not found', path: reqPath }, 404);
 
-    const row = stmt.get(session) as ImageRow | undefined;
+    const m = (await res.json()) as Manifest;
+    const base = m.publicBaseUrl ?? `/data_set/${reqPath}`;
+    const ai  = m.files?.ai_generated ?? [];
+    const hum = m.files?.human ?? [];
 
-    if (!row) {
-      return NextResponse.json({ done: true }, { status: 200 });
-    }
-
-    if (!row.url) {
-      // ✅ Defensive guard: should not happen due to WHERE, but just in case
-      return NextResponse.json(
-        { error: `Image ${row.id} has no URL in DB` },
-        { status: 400 }
+    // Need at least one from each group
+    const aiFile = pick(ai);
+    const huFile = pick(hum);
+    if (!aiFile || !huFile) {
+      return json(
+        {
+          error: 'Not enough images in leaf (need ≥1 AI and ≥1 Human)',
+          path: reqPath,
+          counts: { ai: ai.length, human: hum.length },
+        },
+        400
       );
     }
 
-    // Mark as seen for this session
-    db.prepare(`
-      INSERT OR IGNORE INTO image_session_seen (session_id, image_id, seen_at)
-      VALUES (?, ?, ?)
-    `).run(session, row.id, Date.now());
+    // Random side for AI
+    const aiIndex = Math.random() < 0.5 ? 0 : 1;
+    const images = new Array(2) as { url: string; type: 'ai' | 'human' }[];
+    images[aiIndex]     = { url: `${base}/ai_generated/${aiFile}`, type: 'ai' };
+    images[1 - aiIndex] = { url: `${base}/human/${huFile}`,       type: 'human' };
 
-    return NextResponse.json({
-      id: row.id,
-      url: row.url,
-      isAI: row.is_ai === 1,
+    return json({
+      images,
+      aiIndex,
+      leafPath: reqPath,
+      counts: { ai: ai.length, human: hum.length },
+      publicBaseUrl: base,
     });
   } catch (err: any) {
-    console.error("❌ API /api/images/next error:", err);
-    return NextResponse.json(
-      { error: err?.message ?? 'Bad Request' },
-      { status: 400 }
-    );
+    return json({ error: err?.message ?? 'Unexpected error' }, 500);
   }
 }

@@ -1,0 +1,43 @@
+{
+    "files": {
+    "ai_generated": [
+      "1.png",
+      "2.png",
+      "3.png",
+      "4.png",
+      "5.png",
+      "6.png",
+      "7.png",
+      "8.png",
+      "9.png",
+      "10.png"
+    ],
+    "human": [
+      "1.jpg",
+      "2.jpg",
+      "3.jpg",
+      "4.jpg",
+      "5.jpg",
+      "6.jpg",
+      "7.jpg",
+      "8.jpg",
+      "9.jpg",
+      "10.jpg"
+    ],
+    "meta": [
+      "1.docx",
+      "2.docx",
+      "3.docx",
+      "4.docx",
+      "5.docx",
+      "6.docx",
+      "7.docx",
+      "8.docx",
+      "9.docx",
+      "10.docx"
+    ]
+  },
+    "publicBaseUrl": "/data_set/fantasy_mythological_art/Hand_painted_Fantasy_scenes/",
+    "metaFolderName": "meta_data"
+  }
+  

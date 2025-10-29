@@ -28,8 +28,8 @@ export const GAME_TIPS_NARRATION: NarrationLine[] = [
 // 4) Game Over / Lost (screen four)
 export const GAME_OVER_NARRATION = (score: number): NarrationLine[] => [
   {
-    cc: "Game over. You lost this round.",
-    text: "Game over. This round didn’t go your way.",
+    cc: "You lost this round.",
+    text: "This round didn’t go your way.",
     pauseMs: 200,
   },
   {

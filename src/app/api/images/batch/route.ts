@@ -1,73 +1,86 @@
-export const runtime = 'nodejs';
+// src/app/api/images/batch/route.ts
+export const runtime = 'edge';
+export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
-import { z } from 'zod';
-import { db } from '@/lib/db';
+type Manifest = {
+  files?: { ai_generated?: string[]; human?: string[] };
+  publicBaseUrl?: string; // e.g. "/data_set/anime_art/digital_art"
+};
 
-// shape returned to client
-type OutItem = { id: number; url: string; isAI: boolean };
+function json(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
 
-const QuerySchema = z.object({
-  session: z.coerce.number().int().positive(),
-  kind: z.enum(['ai', 'human']),
-  count: z.coerce.number().int().min(1).max(100).default(10),
-});
-
-/**
- * GET /api/images/batch?session=123&kind=ai|human&count=10
- *
- * - Pulls up to {count} active, unseen images of the requested kind for this session
- * - Marks them as seen IN THE SAME TRANSACTION (reservation) to guarantee uniqueness
- */
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
-    const parse = QuerySchema.safeParse({
-      session: url.searchParams.get('session'),
-      kind: url.searchParams.get('kind'),
-      count: url.searchParams.get('count'),
-    });
-    if (!parse.success) {
-      return NextResponse.json({ error: 'Invalid query' }, { status: 400 });
+
+    // required: path=<top>/<leaf>  (e.g., "anime_art/digital_art")
+    const reqPath = (url.searchParams.get('path') || '').replace(/^\/+|\/+$/g, '');
+    if (!reqPath) return json({ error: 'Missing ?path=<top>/<leaf>' }, 400);
+
+    // keep compatibility with your caller (but we don’t use it server-side)
+    const kindRaw = (url.searchParams.get('kind') || '').toLowerCase();
+    const kind = kindRaw === 'ai' ? 'ai' : kindRaw === 'human' ? 'human' : null;
+    if (!kind) return json({ error: 'Invalid ?kind=ai|human' }, 400);
+
+    const count = Math.max(1, Math.min(100, Number(url.searchParams.get('count') || 10)));
+    const offset = Math.max(0, Number(url.searchParams.get('offset') || 0));
+
+    // Load the manifest (tiny JSON) from public
+    const manifestUrl = new URL(`/data_set/${reqPath}/manifest.json`, url.origin);
+    const res = await fetch(manifestUrl.toString(), { cache: 'no-store' });
+    if (!res.ok) {
+      return json(
+        { error: 'Leaf manifest not found', path: reqPath, expected: manifestUrl.pathname },
+        404
+      );
     }
-    const { session, kind, count } = parse.data;
-    const wantAI = kind === 'ai' ? 1 : 0;
 
-    // Use a transaction: pick unseen rows, then mark them as seen for this session
-    const trx = db.transaction((sess: number, is_ai: number, limit: number) => {
-      const rows = db
-        .prepare(
-          `
-          SELECT id, url, is_ai
-          FROM images
-          WHERE active = 1
-            AND is_ai = ?
-            AND id NOT IN (
-              SELECT image_id FROM image_session_seen WHERE session_id = ?
-            )
-          ORDER BY RANDOM()
-          LIMIT ?
-        `
-        )
-        .all(is_ai, sess, limit) as { id: number; url: string; is_ai: number }[];
+    const m = (await res.json()) as Manifest;
+    const base = m.publicBaseUrl ?? `/data_set/${reqPath}`;
 
-      const seenStmt = db.prepare(`
-        INSERT OR IGNORE INTO image_session_seen (session_id, image_id, seen_at)
-        VALUES (?, ?, ?)
-      `);
+    const aiList = m.files?.ai_generated ?? [];
+    const huList = m.files?.human ?? [];
+    const list = kind === 'ai' ? aiList : huList;
+    const total = list.length;
 
-      const now = Date.now();
-      for (const r of rows) {
-        seenStmt.run(sess, r.id, now);
-      }
+    if (total === 0) {
+      return json({
+        items: [],
+        total,
+        offset,
+        nextOffset: offset,
+        kind,
+        path: reqPath,
+        note: 'No images available for this kind in the selected leaf.',
+      });
+    }
 
-      const out: OutItem[] = rows.map((r) => ({ id: r.id, url: r.url, isAI: r.is_ai === 1 }));
-      return out;
+    // Paginate without repeats in a single response
+    const slice = list.slice(offset, offset + count);
+    const nextOffset = Math.min(offset + slice.length, total);
+
+    const items = slice.map((file, i) => ({
+      // synthetic ID to keep shape; combine offset to remain stable
+      id: offset + i,
+      url: `${base}/${kind === 'ai' ? 'ai_generated' : 'human'}/${file}`,
+      isAI: kind === 'ai',
+    }));
+
+    return json({
+      items,
+      total,
+      offset,
+      nextOffset,
+      kind,
+      path: reqPath,
+      publicBaseUrl: base,
     });
-
-    const items = trx(session, wantAI, count);
-    return NextResponse.json({ items });
   } catch (err: any) {
-    return NextResponse.json({ error: err?.message ?? 'Bad Request' }, { status: 400 });
+    return json({ error: err?.message ?? 'Unexpected error' }, 500);
   }
 }
