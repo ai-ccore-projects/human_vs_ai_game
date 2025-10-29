@@ -29,7 +29,7 @@ export const GAME_TIPS_NARRATION: NarrationLine[] = [
 export const GAME_OVER_NARRATION = (score: number): NarrationLine[] => [
   {
     cc: "You lost this round.",
-    text: "This round didn’t go your way.",
+    text: "You lost this round.",
     pauseMs: 200,
   },
   {
@@ -39,6 +39,6 @@ export const GAME_OVER_NARRATION = (score: number): NarrationLine[] => [
   },
   {
     cc: "Try again to improve your performance.",
-    text: "Don’t worry, you can always try again to beat your score.",
+    text: "Try again to improve your performance.",
   },
 ];
