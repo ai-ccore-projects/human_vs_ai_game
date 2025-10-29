@@ -1,5 +1,7 @@
 // src/types/game.ts
 
+// ---------------- Existing types (kept as-is) ----------------
+
 export type Difficulty = 'easy' | 'medium' | 'hard' | 'extreme';
 
 export interface GameImage {
@@ -91,4 +93,32 @@ export interface GameState {
   imagesPreloaded: number;
   gameStartTime: number | null;       // ms epoch
   lastActionTime: number | null;      // ms epoch
+}
+
+// ---------------- New exports used by constants.ts ----------------
+
+/** Animation config used by ANIMATION_CONFIG in src/utils/constants.ts */
+export interface AnimationConfig {
+  screenTransition: number;
+  buttonHover: number;
+  correctAnswer: number;
+  wrongAnswer: number;
+  particleDuration: number;
+  screenShake: { duration: number; intensity: number };
+  heartBreak: number;
+  scoreFloat: number;
+}
+
+/** Difficulty metadata used by DIFFICULTY_CATEGORIES in constants.ts */
+export interface DifficultyCategory {
+  description: string;
+  examples: string;
+}
+
+/** Input mapping used by CONTROLS in constants.ts */
+export interface Controls {
+  left: string[];
+  right: string[];
+  start: string[];
+  konamiCode: string[];
 }

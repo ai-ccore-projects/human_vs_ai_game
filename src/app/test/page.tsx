@@ -18,10 +18,10 @@ export default function TestPage() {
         await manager.initializeImageCaches();
         
         const managerStatus = manager.getStatus();
-        setImageCount(managerStatus.aiCache + managerStatus.humanCache);
+        setImageCount(Math.floor(managerStatus.remainingImages / 2));
         setStatus('✅ Success! Images loaded');
-        
         console.log('ImageManager Status:', managerStatus);
+        
         
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : 'Unknown error';

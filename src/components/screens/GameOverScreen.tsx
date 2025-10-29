@@ -6,100 +6,139 @@ import { motion } from 'framer-motion';
 import { useGameWithLeaderboard } from '@/stores/gameStore';
 import { useSubmitScore } from '@/hooks/useSubmitScore';
 import { useHighScores } from '@/hooks/useHighScore';
-import { GAME_OVER_NARRATION } from '@/utils/narrationScript';
-
-// 🔊 Narration + captions
 import { useNarrator } from '@/hooks/useNarrator';
 import NarrationOverlay from '@/components/ui/NarrationOverlay';
 
-export const GameOverScreen: React.FC = () => {
+const ACTIVE: Array<string> = ['speaking', 'paused', 'starting', 'queued'];
+
+const GameOverScreen: React.FC = () => {
   const gameStore = useGameWithLeaderboard();
 
-  // ===== VOICE: say "Game over." once, with captions =====
+  // === VOICE + CC ===
   const narrator = useNarrator();
   const [showNarration, setShowNarration] = useState(true);
-  const startedRef = useRef(false);
-  const retryTimeoutRef = useRef<number | null>(null);
+  const [ccOverride, setCcOverride] = useState<string | null>(null); // CC when using native fallback
+
+  const bootedRef = useRef(false);
+  const retryTimerRef = useRef<number | null>(null);
   const gestureHookedRef = useRef(false);
 
-  const activeNarrationStates = ['speaking', 'paused', 'starting', 'queued'] as const;
-  const narrationActive = activeNarrationStates.includes(narrator.status as any);
+  const isActive = () => ACTIVE.includes(narrator.status as any);
   const nextTick = () => new Promise<void>((r) => setTimeout(r, 0));
+  const raf = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
 
+  const line =
+    `Thank you for playing. Here is your score: ${gameStore.score}. ` +
+    `If you'd like to play again, click Play Again.`;
 
+  // ---- Native fallback (guaranteed) ----
+  const nativeSpeak = async (text: string) => {
+    try {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        // cancel any queue
+        try { window.speechSynthesis.cancel(); } catch {}
+        await raf();
+
+        const u = new SpeechSynthesisUtterance(text);
+        u.rate = 1.0;
+        u.pitch = 1.0;
+        u.onstart = () => setCcOverride(text);
+        u.onend = () => setCcOverride(null);
+        window.speechSynthesis.speak(u);
+        return true;
+      }
+    } catch {}
+    return false;
+  };
+
+  // ---- Primary path: your narrator.start (string → segments) ----
+  const narratorSpeak = async (text: string) => {
+    try {
+      await narrator.start(text as unknown as any);
+    } catch { /* ignore */ }
+    if (!isActive()) {
+      try {
+        await narrator.start([{ text, cc: text }] as unknown as any);
+      } catch { /* swallow */ }
+    }
+    return isActive();
+  };
+
+  const speakNow = async () => {
+    // stop leftovers (both narrator + native)
+    try { narrator.stop(); } catch {}
+    try { (window as any)?.speechSynthesis?.cancel?.(); } catch {}
+    await nextTick(); // let cancellations settle
+    await raf();
+
+    // try narrator first
+    let ok = await narratorSpeak(line);
+
+    // small retry after a blink
+    if (!ok) {
+      await new Promise((r) => setTimeout(r, 250));
+      ok = await narratorSpeak(line);
+    }
+
+    // last resort: native API + local CC override
+    if (!ok) await nativeSpeak(line);
+  };
+
+  // Keep CC visible by default
   useEffect(() => {
     try { narrator.setCaptionsOn(true); } catch {}
   }, [narrator]);
-  
+
+  // Kick off TTS on mount
   useEffect(() => {
-    if (startedRef.current) return;
-    startedRef.current = true;
-  
+    if (bootedRef.current) return;
+    bootedRef.current = true;
+
     (async () => {
-      narrator.stop();     // flush leftovers
-      await nextTick();    // let cancel settle
-      try {
-        await narrator.start(GAME_OVER_NARRATION(gameStore.score));
-      } catch {
-        // swallow
-      }
-  
-      // If autoplay blocked, do a single gentle retry after 500ms
-      if (!narrationActive && retryTimeoutRef.current == null) {
-        retryTimeoutRef.current = window.setTimeout(async () => {
-          if (!activeNarrationStates.includes(narrator.status as any)) {
-            try {
-              await narrator.start(GAME_OVER_NARRATION(gameStore.score));
-            } catch {/* ignore */}
-          }
-        }, 500) as unknown as number;
+      await speakNow();
+
+      // one gentle retry if nothing started
+      if (!isActive() && !ccOverride && retryTimerRef.current == null) {
+        retryTimerRef.current = window.setTimeout(() => { void speakNow(); }, 400) as unknown as number;
       }
     })();
+
+    return () => {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      try { narrator.stop(); } catch {}
+      try { (window as any)?.speechSynthesis?.cancel?.(); } catch {}
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [narrator, gameStore.score]);
-  
-  // gesture fallback: if still not active, first pointer/key re-starts TTS
+  }, [gameStore.score, narrator]);
+
+  // One-time gesture fallback: first click/keypress re-speaks if still idle
   useEffect(() => {
     if (gestureHookedRef.current) return;
-  
+
     const kick = async () => {
-      if (!activeNarrationStates.includes(narrator.status as any)) {
-        narrator.stop();
-        await nextTick();
-        try {
-          await narrator.start(GAME_OVER_NARRATION(gameStore.score));
-        } catch {/* ignore */}
+      if (!isActive() && !ccOverride) {
+        await speakNow();
       }
       window.removeEventListener('pointerdown', kick);
       window.removeEventListener('keydown', kick);
     };
-  
+
     gestureHookedRef.current = true;
     window.addEventListener('pointerdown', kick, { once: true });
-    window.addEventListener('keydown',   kick, { once: true });
-  
+    window.addEventListener('keydown', kick, { once: true });
+
     return () => {
       window.removeEventListener('pointerdown', kick);
       window.removeEventListener('keydown', kick);
     };
-  }, [narrator, gameStore.score]);
-  
-  // hide overlay when it’s no longer speaking
-  useEffect(() => {
-    if (!narrationActive) setShowNarration(false);
-  }, [narrationActive]);
-  
-  // cleanup
-  useEffect(() => {
-    return () => {
-      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
-      narrator.stop();
-    };
-  }, [narrator]);
-  
-  
+  }, [ccOverride]);
 
-  // ===== SCORE SUBMIT + LEADERBOARD =====
+  // Auto-hide CC panel once nothing is talking and no fallback CC
+  useEffect(() => {
+    if (!isActive() && !ccOverride) setShowNarration(false);
+  }, [narrator.status, ccOverride]);
+
+  // === SCORE SUBMIT + LEADERBOARD (unchanged) ===
   const payload = useMemo(
     () => ({
       name: gameStore.playerName || 'AAA',
@@ -115,23 +154,19 @@ export const GameOverScreen: React.FC = () => {
 
   useEffect(() => {
     let cancelled = false;
-    const submitKey = `score:${payload.name}:${payload.score}:${payload.round}:${payload.maxCombo}`;
-
+    const key = `score:${payload.name}:${payload.score}:${payload.round}:${payload.maxCombo}`;
     (async () => {
       if (didSubmit) return;
-      if (typeof window !== 'undefined' && sessionStorage.getItem(submitKey) === '1') {
+      if (typeof window !== 'undefined' && sessionStorage.getItem(key) === '1') {
         setDidSubmit(true);
         return;
       }
       const ok = await submit(payload);
-      if (cancelled) return;
-
-      if (ok && typeof window !== 'undefined') {
-        sessionStorage.setItem(submitKey, '1');
+      if (!cancelled) {
+        if (ok && typeof window !== 'undefined') sessionStorage.setItem(key, '1');
+        setDidSubmit(true);
       }
-      setDidSubmit(true);
     })();
-
     return () => { cancelled = true; };
   }, [submit, payload, didSubmit]);
 
@@ -205,7 +240,7 @@ export const GameOverScreen: React.FC = () => {
               </div>
             </div>
 
-            {/* Top Scores (DB) */}
+            {/* Top Scores */}
             <div className="arcade-border p-8 rounded-lg">
               <h2 className="font-arcade text-2xl text-glow-green mb-6 text-center">LEADERBOARD</h2>
               {loadingTop ? (
@@ -265,16 +300,16 @@ export const GameOverScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* 🔊 VO + CC overlay */}
+      {/* VO + CC overlay (uses narrator caption OR fallback caption) */}
       <NarrationOverlay
-        visible={showNarration || narrationActive}
-        statusText={narrator.status.toUpperCase()}
-        caption={narrator.currentCaption}
+        visible={showNarration || isActive() || !!ccOverride}
+        statusText={(ccOverride ? 'SPEAKING' : narrator.status.toUpperCase())}
+        caption={ccOverride ?? narrator.currentCaption}
         captionsOn={narrator.captionsOn}
         onToggleCC={() => narrator.setCaptionsOn(!narrator.captionsOn)}
         onPause={narrator.pause}
         onResume={narrator.resume}
-        onSkip={() => { narrator.stop(); setShowNarration(false); }}
+        onSkip={() => { narrator.stop(); setCcOverride(null); setShowNarration(false); }}
         isPaused={narrator.status === 'paused'}
       />
     </div>

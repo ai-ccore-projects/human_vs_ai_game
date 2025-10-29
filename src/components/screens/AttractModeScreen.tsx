@@ -10,6 +10,9 @@ import { useNarrator } from '@/hooks/useNarrator';
 import NarrationOverlay from '@/components/ui/NarrationOverlay';
 import { WELCOME_NARRATION } from '@/utils/narrationScript';
 
+// 🔊 add this import (note lowercase file name)
+import { getSound } from '@/utils/soundManager';
+
 const AttractModeScreen: React.FC = () => {
   const { setScreen, highScore } = useGameWithLeaderboard();
 
@@ -28,18 +31,26 @@ const AttractModeScreen: React.FC = () => {
     try { narrator.setCaptionsOn(true); } catch {}
   }, [narrator]);
 
-  // Start flow: await the WHOLE narration, then move on
+  // Start flow: init audio, play click, await narration, then move on
   const handleStartGame = useCallback(async () => {
     if (startedRef.current) return;
     startedRef.current = true;
+
+    // 🔊 initialize audio on first user gesture
+    try {
+      const sound = getSound();
+      sound.unlock();                  // iOS/Safari
+      await sound.initializeSounds();  // load files + generate fallbacks
+      sound.playSound('click');
+    } catch {}
 
     setShowNarration(true);
     narrator.stop(); // clear leftovers
 
     try {
-      await narrator.start(WELCOME_NARRATION); // <-- wait until the full script finishes
+      await narrator.start(WELCOME_NARRATION); // wait until full script finishes
     } catch {
-      // ignore; we'll still proceed
+      // ignore; still proceed
     }
 
     if (!navigatingRef.current) {
@@ -49,11 +60,19 @@ const AttractModeScreen: React.FC = () => {
     }
   }, [narrator, setScreen]);
 
-  // Keyboard shortcuts to start
+  // Keyboard shortcuts to start (also trigger audio click)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (['Enter', ' ', 'ArrowRight', 'ArrowLeft'].includes(e.key)) {
         e.preventDefault();
+
+        // 🔊 give feedback on keyboard start too
+        try {
+          const sound = getSound();
+          sound.unlock();
+          void sound.initializeSounds().then(() => sound.playSound('click'));
+        } catch {}
+
         void handleStartGame();
       }
     };

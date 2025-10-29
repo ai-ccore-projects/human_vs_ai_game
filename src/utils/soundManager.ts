@@ -1,4 +1,7 @@
-// Sound Manager for Web Audio API
+// src/utils/SoundManager.ts
+// Web Audio manager (SSR-safe, lazy initialization, singleton helper)
+
+const isBrowser = typeof window !== 'undefined';
 
 export class SoundManager {
   private audioContext: AudioContext | null = null;
@@ -6,40 +9,108 @@ export class SoundManager {
   private musicSource: AudioBufferSourceNode | null = null;
   private enabled = true;
 
-  constructor() {
-    this.initializeAudioContext();
-  }
+  // Do NOT touch Web APIs here (keeps SSR safe)
+  constructor() {}
 
-  private initializeAudioContext(): void {
-    try {
-      this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    } catch (error) {
-      console.warn('Web Audio API not supported:', error);
+  // ================= Internal =================
+
+  /** Create AudioContext on demand (client only). */
+  private ensureAudioContext(): void {
+    if (!isBrowser || !this.enabled) return;
+    if (this.audioContext) return;
+
+    const Ctx: any = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!Ctx) {
+      console.warn('Web Audio API not available on this platform.');
       this.enabled = false;
+      return;
+    }
+    try {
+      this.audioContext = new Ctx();
+    } catch (error) {
+      console.warn('Failed to create AudioContext:', error);
+      this.enabled = false;
+      this.audioContext = null;
     }
   }
 
-  // Load a sound from a URL
-  async loadSound(name: string, url: string): Promise<void> {
-    if (!this.audioContext || this.sounds.has(name)) return;
+  /** Back-compat shim (if old code still calls initializeAudioContext). */
+  public initializeAudioContext(): void {
+    this.ensureAudioContext();
+  }
+
+  // ================= Public: lifecycle =================
+
+  /** Call from a user gesture (click/tap) to reliably unlock audio on Safari/iOS. */
+  public unlock(): void {
+    this.ensureAudioContext();
+    const ctx = this.audioContext;
+    if (!ctx) return;
 
     try {
-      const response = await fetch(url);
-      const arrayBuffer = await response.arrayBuffer();
-      const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
-      this.sounds.set(name, audioBuffer);
-    } catch (error) {
-      console.error(`Failed to load sound: ${name}`, error);
+      const buf = ctx.createBuffer(1, 1, ctx.sampleRate);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+      src.stop(0);
+    } catch {
+      /* ignore */
     }
   }
 
-  // Generate sound effects programmatically
-  private generateTone(frequency: number, duration: number, type: OscillatorType = 'sine'): AudioBuffer | null {
-    if (!this.audioContext) return null;
+  /** Resume a suspended context (some browsers suspend until interaction). */
+  public async resumeAudioContext(): Promise<void> {
+    this.ensureAudioContext();
+    if (this.audioContext && this.audioContext.state === 'suspended') {
+      try { await this.audioContext.resume(); } catch { /* ignore */ }
+    }
+  }
 
-    const sampleRate = this.audioContext.sampleRate;
-    const length = sampleRate * duration;
-    const buffer = this.audioContext.createBuffer(1, length, sampleRate);
+  /** Toggle sound on/off. Returns the resulting state. */
+  public toggleSound(): boolean {
+    this.enabled = !this.enabled;
+    return this.enabled;
+  }
+
+  public isEnabled(): boolean {
+    return this.enabled;
+  }
+
+  public get hasContext(): boolean {
+    return !!this.audioContext && this.enabled;
+  }
+
+  // ================= Loading & generation =================
+
+  /** Load a sound file into an AudioBuffer (no-ops on SSR). */
+  public async loadSound(name: string, url: string): Promise<void> {
+    this.ensureAudioContext();
+    if (!this.audioContext || !this.enabled || this.sounds.has(name)) return;
+
+    try {
+      const res = await fetch(url);
+      const arr = await res.arrayBuffer();
+      const buf = await this.audioContext.decodeAudioData(arr);
+      this.sounds.set(name, buf);
+    } catch (error) {
+      console.error(`Failed to load sound '${name}' from ${url}`, error);
+    }
+  }
+
+  /** Generate a simple tone (fallback SFX). */
+  private generateTone(
+    frequency: number,
+    duration: number,
+    type: OscillatorType = 'sine'
+  ): AudioBuffer | null {
+    this.ensureAudioContext();
+    const ctx = this.audioContext;
+    if (!ctx) return null;
+
+    const sampleRate = ctx.sampleRate;
+    const length = Math.max(1, Math.floor(sampleRate * duration));
+    const buffer = ctx.createBuffer(1, length, sampleRate);
     const data = buffer.getChannelData(0);
 
     for (let i = 0; i < length; i++) {
@@ -47,69 +118,70 @@ export class SoundManager {
       let sample = 0;
 
       switch (type) {
-        case 'sine':
-          sample = Math.sin(2 * Math.PI * frequency * t);
-          break;
-        case 'square':
-          sample = Math.sin(2 * Math.PI * frequency * t) > 0 ? 1 : -1;
-          break;
-        case 'sawtooth':
-          sample = 2 * (t * frequency - Math.floor(t * frequency + 0.5));
-          break;
-        case 'triangle':
-          sample = 2 * Math.abs(2 * (t * frequency - Math.floor(t * frequency + 0.5))) - 1;
-          break;
+        case 'sine':     sample = Math.sin(2 * Math.PI * frequency * t); break;
+        case 'square':   sample = Math.sin(2 * Math.PI * frequency * t) > 0 ? 1 : -1; break;
+        case 'sawtooth': sample = 2 * (t * frequency - Math.floor(t * frequency + 0.5)); break;
+        case 'triangle': sample = 2 * Math.abs(2 * (t * frequency - Math.floor(t * frequency + 0.5))) - 1; break;
       }
 
-      // Apply envelope (fade in/out)
-      const envelope = Math.min(1, t * 10) * Math.min(1, (duration - t) * 10);
-      data[i] = sample * envelope * 0.3; // Volume control
+      // Simple attack/release envelope to avoid clicks
+      const attack = Math.min(0.02, duration * 0.2);
+      const release = Math.min(0.05, duration * 0.3);
+      const env =
+        t < attack
+          ? t / attack
+          : t > duration - release
+            ? Math.max(0, (duration - t) / release)
+            : 1;
+
+      data[i] = sample * env * 0.3; // master gain
     }
 
     return buffer;
   }
 
-  // Initialize all game sounds
-  async initializeSounds(): Promise<void> {
+  /** Initialize common game sounds (files + generated fallbacks). */
+  public async initializeSounds(): Promise<void> {
+    this.ensureAudioContext();
     if (!this.audioContext || !this.enabled) return;
 
-    console.log('🔊 Initializing sounds...');
-
-    // Load sounds from files
+    // File-based (optional; they’ll no-op on SSR)
     await this.loadSound('backgroundMusic', '/sounds/background.mp3');
-    await this.loadSound('correct', '/sounds/correct.mp3');
-    await this.loadSound('wrong', '/sounds/wrong.mp3');
-    await this.loadSound('click', '/sounds/click.mp3');
+    await this.loadSound('correct',         '/sounds/correct.mp3');
+    await this.loadSound('wrong',           '/sounds/wrong.mp3');
+    await this.loadSound('click',           '/sounds/click.mp3');
 
-
-    // Generate arcade-style sound effects for fallback
-    const soundDefinitions = {
-      correct: { freq: 800, duration: 0.2, type: 'sine' as OscillatorType },
-      wrong: { freq: 200, duration: 0.5, type: 'sawtooth' as OscillatorType },
-      combo: { freq: 1200, duration: 0.3, type: 'triangle' as OscillatorType },
-      gameStart: { freq: 600, duration: 0.4, type: 'square' as OscillatorType },
-      gameOver: { freq: 150, duration: 1.0, type: 'sawtooth' as OscillatorType },
-      heartLost: { freq: 300, duration: 0.6, type: 'triangle' as OscillatorType },
-      highScore: { freq: 1000, duration: 0.8, type: 'sine' as OscillatorType },
-      buttonHover: { freq: 400, duration: 0.1, type: 'square' as OscillatorType },
-      tick: { freq: 500, duration: 0.05, type: 'square' as OscillatorType }
+    // Generated fallbacks if not present yet
+    const defs = {
+      correct:     { freq: 800,  duration: 0.2, type: 'sine'     as OscillatorType },
+      wrong:       { freq: 200,  duration: 0.5, type: 'sawtooth' as OscillatorType },
+      combo:       { freq: 1200, duration: 0.3, type: 'triangle' as OscillatorType },
+      gameStart:   { freq: 600,  duration: 0.4, type: 'square'   as OscillatorType },
+      gameOver:    { freq: 150,  duration: 1.0, type: 'sawtooth' as OscillatorType },
+      heartLost:   { freq: 300,  duration: 0.6, type: 'triangle' as OscillatorType },
+      highScore:   { freq: 1000, duration: 0.8, type: 'sine'     as OscillatorType },
+      buttonHover: { freq: 400,  duration: 0.1, type: 'square'   as OscillatorType },
+      tick:        { freq: 500,  duration: 0.05, type: 'square'  as OscillatorType },
     };
 
-    for (const [name, config] of Object.entries(soundDefinitions)) {
+    for (const [name, cfg] of Object.entries(defs)) {
       if (!this.sounds.has(name)) {
-        const buffer = this.generateTone(config.freq, config.duration, config.type);
-        if (buffer) {
-          this.sounds.set(name, buffer);
-        }
+        const buf = this.generateTone(cfg.freq, cfg.duration, cfg.type);
+        if (buf) this.sounds.set(name, buf);
       }
     }
 
-    console.log(`✅ Loaded ${this.sounds.size} sounds`);
+    // eslint-disable-next-line no-console
+    console.log(`✅ Sounds ready: ${this.sounds.size} buffers`);
   }
 
-  // Play a sound effect
-  playSound(soundName: string, volume = 1.0): void {
-    if (!this.audioContext || !this.enabled) return;
+  // ================= Playback =================
+
+  /** Play a short SFX by name. */
+  public playSound(soundName: string, volume = 1.0): void {
+    this.ensureAudioContext();
+    const ctx = this.audioContext;
+    if (!ctx || !this.enabled) return;
 
     const buffer = this.sounds.get(soundName);
     if (!buffer) {
@@ -118,25 +190,24 @@ export class SoundManager {
     }
 
     try {
-      const source = this.audioContext.createBufferSource();
-      const gainNode = this.audioContext.createGain();
-      
-      source.buffer = buffer;
-      gainNode.gain.setValueAtTime(volume, this.audioContext.currentTime);
-      
-      source.connect(gainNode);
-      gainNode.connect(this.audioContext.destination);
-      
-      source.start();
+      const src = ctx.createBufferSource();
+      const gain = ctx.createGain();
+      src.buffer = buffer;
+      gain.gain.setValueAtTime(volume, ctx.currentTime);
+      src.connect(gain).connect(ctx.destination);
+      src.start();
     } catch (error) {
       console.error('Error playing sound:', error);
     }
   }
 
-  // Play background music
-  playMusic(soundName: string, volume = 0.3): void {
-    if (!this.audioContext || !this.enabled) return;
-    this.stopMusic(); // Stop any currently playing music
+  /** Start looping background music by buffer name. */
+  public playMusic(soundName: string, volume = 0.3): void {
+    this.ensureAudioContext();
+    const ctx = this.audioContext;
+    if (!ctx || !this.enabled) return;
+
+    this.stopMusic();
 
     const buffer = this.sounds.get(soundName);
     if (!buffer) {
@@ -145,67 +216,65 @@ export class SoundManager {
     }
 
     try {
-      this.musicSource = this.audioContext.createBufferSource();
-      const gainNode = this.audioContext.createGain();
-      
-      this.musicSource.buffer = buffer;
-      this.musicSource.loop = true;
-      gainNode.gain.setValueAtTime(volume, this.audioContext.currentTime);
-      
-      this.musicSource.connect(gainNode);
-      gainNode.connect(this.audioContext.destination);
-      
-      this.musicSource.start();
+      const src = ctx.createBufferSource();
+      const gain = ctx.createGain();
+      src.buffer = buffer;
+      src.loop = true;
+      gain.gain.setValueAtTime(volume, ctx.currentTime);
+      src.connect(gain).connect(ctx.destination);
+      src.start();
+      this.musicSource = src;
     } catch (error) {
       console.error('Error playing music:', error);
     }
   }
 
-  // Stop background music
-  stopMusic(): void {
-    if (this.musicSource) {
-      this.musicSource.stop();
+  /** Stop background music if playing. */
+  public stopMusic(): void {
+    try {
+      this.musicSource?.stop();
+    } catch {
+      /* ignore */
+    } finally {
       this.musicSource = null;
     }
   }
 
-  // Play combo sound with increasing pitch
-  playComboSound(comboCount: number): void {
-    if (!this.audioContext || !this.enabled) return;
+  /** Play a combo chirp whose pitch scales with the combo count. */
+  public playComboSound(comboCount: number): void {
+    this.ensureAudioContext();
+    const ctx = this.audioContext;
+    if (!ctx || !this.enabled) return;
 
     const baseFreq = 800;
-    const freq = baseFreq + (comboCount * 100);
+    const freq = baseFreq + comboCount * 100;
     const buffer = this.generateTone(freq, 0.2, 'sine');
-    
-    if (buffer) {
-      const source = this.audioContext.createBufferSource();
-      const gainNode = this.audioContext.createGain();
-      
-      source.buffer = buffer;
-      gainNode.gain.value = Math.min(1.0, 0.3 + (comboCount * 0.1));
-      
-      source.connect(gainNode);
-      gainNode.connect(this.audioContext.destination);
-      
-      source.start();
+    if (!buffer) return;
+
+    try {
+      const src = ctx.createBufferSource();
+      const gain = ctx.createGain();
+      src.buffer = buffer;
+      gain.gain.value = Math.min(1.0, 0.3 + comboCount * 0.1);
+      src.connect(gain).connect(ctx.destination);
+      src.start();
+    } catch (error) {
+      console.error('Error playing combo sound:', error);
     }
   }
 
-  // Resume audio context (required for user interaction)
-  async resumeAudioContext(): Promise<void> {
-    if (this.audioContext && this.audioContext.state === 'suspended') {
-      await this.audioContext.resume();
-    }
+  /** Stop all audio (music + any transient SFX will end naturally). */
+  public stopAll(): void {
+    this.stopMusic();
   }
+}
 
-  // Toggle sound on/off
-  toggleSound(): boolean {
-    this.enabled = !this.enabled;
-    return this.enabled;
-  }
+// =============== Lazy singleton (recommended usage) ===============
 
-  // Check if sound is enabled
-  isEnabled(): boolean {
-    return this.enabled;
-  }
+let _soundSingleton: SoundManager | null = null;
+
+/** Get a shared SoundManager without touching Web APIs at import time. */
+export function getSound(): SoundManager {
+  if (!_soundSingleton) _soundSingleton = new SoundManager();
+  return _soundSingleton;
 }

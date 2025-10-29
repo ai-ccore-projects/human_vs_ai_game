@@ -24,7 +24,7 @@ const BASE_ROUND_TIME = 10;
 
 // 🧠 Compute timer dynamically: halve every 3 rounds, minimum 2 seconds
 const computeRoundTimer = (round: number) => {
-  const halfSteps = Math.floor((round - 1) / 3); // 0 for rounds 1–3, 1 for 4–6, etc.
+  const halfSteps = Math.floor((round - 1) / 3);
   const newTime = BASE_ROUND_TIME / Math.pow(2, halfSteps);
   return Math.max(newTime, 2);
 };
@@ -57,38 +57,35 @@ const GameScreen: React.FC = () => {
   const autoTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Local countdown (starts ticking only after narration finishes)
-  const [timeLeft, setTimeLeft] = useState<number>(computeRoundTimer(1)); // start at 15 seconds
+  const [timeLeft, setTimeLeft] = useState<number>(computeRoundTimer(1));
 
   // ====== NARRATION: speak gameplay tips; gate timer until finished ======
   const narrator = useNarrator();
   const [showNarration, setShowNarration] = useState(true);
   const startedTipsRef = useRef(false);
 
-  // Treat only these as "actively narrating"
   const activeNarrationStates = ['speaking', 'paused', 'starting', 'queued'] as const;
-  const narrationReady = narrator && !activeNarrationStates.includes(narrator.status as any);
+  const narrationActive = activeNarrationStates.includes(narrator.status as any);
+  const narrationReady = narrator && !narrationActive;
 
   // Ensure CC is ON here
   useEffect(() => {
     try { narrator.setCaptionsOn(true); } catch {}
   }, [narrator]);
 
-  // Start gameplay instructions once
+  // Start gameplay tips once
   useEffect(() => {
     if (startedTipsRef.current) return;
     startedTipsRef.current = true;
-
     setShowNarration(true);
-    narrator.stop(); // flush any leftovers
+    narrator.stop();
     void narrator.start(GAME_TIPS_NARRATION);
   }, [narrator]);
 
   // Hide overlay whenever narration is NOT active
   useEffect(() => {
-    if (!activeNarrationStates.includes(narrator.status as any)) {
-      setShowNarration(false);
-    }
-  }, [narrator.status]);
+    if (!narrationActive) setShowNarration(false);
+  }, [narrationActive]);
 
   // ====== helpers ======
   const extractNumberFromPair = (pr: GameImagePair | null): string | null => {
@@ -117,7 +114,6 @@ const GameScreen: React.FC = () => {
       const p = await loadNextPair(gameStore.round);
       if (p) setPair(p);
     })();
-    // deps: only things that actually change across rounds
   }, [loadNextPair, gameStore.round]);
 
   // ====== lifecycle ======
@@ -134,28 +130,23 @@ const GameScreen: React.FC = () => {
     })();
   }, [gameStore.isPlaying, isReady, status.leafPath, imageLoading, pair, loadNextPair, gameStore.round]);
 
-  // Reset round timer whenever a new pair loads (countdown will wait for narration)
+  // Reset round timer whenever a new pair loads
   useEffect(() => {
     if (!pair) return;
     const start = computeRoundTimer(gameStore.round);
     setTimeLeft(start);
     (gameStore as any).setTimer?.(start);
-    // ⚠️ Intentionally do NOT depend on the whole store object to avoid loops
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pair, gameStore.maxTimer]);
 
   // Ticker: runs only while choosing AND after narration finishes
   useEffect(() => {
     if (!gameStore.isPlaying || !pair || showResult || showMeta || !narrationReady) return;
-
-    const id = setInterval(() => {
-      setTimeLeft(prev => Math.max(0, prev - 1));
-    }, 1000);
-
+    const id = setInterval(() => setTimeLeft(prev => Math.max(0, prev - 1)), 1000);
     return () => clearInterval(id);
   }, [gameStore.isPlaying, pair, showResult, showMeta, narrationReady]);
 
-  // Mirror timeLeft to store AFTER commit (only when narrationReady) without looping
+  // Mirror timeLeft to store AFTER commit
   const lastPushedTimerRef = useRef<number | null>(null);
   useEffect(() => {
     if (!gameStore.isPlaying || !pair || showResult || showMeta || !narrationReady) return;
@@ -209,8 +200,7 @@ const GameScreen: React.FC = () => {
       setCanGoNext(true);
       autoTimerRef.current = setTimeout(() => proceedToNext(), META_AUTO_ADVANCE_MS);
     }, RESULT_ONLY_MS);
-    // ✔ removed gameStore from deps to avoid identity-driven loops
-  }, [timeLeft, pair, showResult, showMeta, status.leafPath, proceedToNext, narrationReady]);
+  }, [timeLeft, pair, showResult, showMeta, status.leafPath, proceedToNext, narrationReady, gameStore]);
 
   // Helper mood
   useEffect(() => {
@@ -303,17 +293,62 @@ const GameScreen: React.FC = () => {
     return () => window.removeEventListener('keydown', onKey);
   }, [gameStore.isPlaying, pair, showResult, showMeta, canGoNext, handlePickSide, proceedToNext, narrationReady]);
 
+  // --- LOSS NARRATION: say "Game over." immediately when lives hit 0 ---
+  const lossHandledRef = useRef(false);
+  const nextTick = () => new Promise<void>((r) => setTimeout(r, 0));
+
+  useEffect(() => {
+    if (gameStore.lives > 0 || lossHandledRef.current) return;
+    lossHandledRef.current = true;
+
+    // Freeze gameplay UI
+    clearTimers();
+
+    // Force CC ON and speak "Game over."
+    (async () => {
+      try { narrator.setCaptionsOn(true); } catch {}
+      try {
+        narrator.stop();
+        await nextTick();
+        await narrator.start([{ text: 'Game over.', cc: 'Game over.' }]);
+      } catch {
+        // ignore; gesture fallback below
+      }
+      // Navigate to Game Over screen after the line (even if blocked we still route)
+      gameStore.setScreen('gameOver');
+    })();
+
+    // One-time gesture fallback if autoplay blocked
+    const kick = async () => {
+      if (narrator.status === 'idle') {
+        try {
+          narrator.stop();
+          await nextTick();
+          await narrator.start([{ text: 'Game over.', cc: 'Game over.' }]);
+        } catch {}
+      }
+      window.removeEventListener('pointerdown', kick);
+      window.removeEventListener('keydown', kick);
+    };
+    window.addEventListener('pointerdown', kick, { once: true });
+    window.addEventListener('keydown',   kick, { once: true });
+
+    return () => {
+      window.removeEventListener('pointerdown', kick);
+      window.removeEventListener('keydown', kick);
+    };
+  }, [gameStore.lives, narrator, gameStore]);
+
   // --- render values ---
   const leftImg  = pair?.images[0];
   const rightImg = pair?.images[1];
   const roundMax = computeRoundTimer(gameStore.round);
   const timerProgress = Math.max(0, Math.min(100, (timeLeft / roundMax) * 100));
-  const maxTimer      = Number(gameStore.maxTimer) || DEFAULT_ROUND_TIME;
 
   const screenVariants = { shake: { x: [0, -10, 10, -10, 10, 0], transition: { duration: 0.5 } }, initial: { x: 0 } };
 
   const narrationOverlayVisible =
-    showNarration || activeNarrationStates.includes(narrator.status as any);
+    showNarration || narrationActive || gameStore.lives <= 0; // keep CC visible on loss
 
   return (
     <motion.div className="absolute inset-0 overflow-hidden bg-blue-900 flex flex-col"
@@ -545,7 +580,7 @@ const GameScreen: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* Game over overlay */}
+      {/* Game over curtain (visual) — narration + route handled above */}
       {gameStore.lives <= 0 && (
         <motion.div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 z-50"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
@@ -554,7 +589,7 @@ const GameScreen: React.FC = () => {
         </motion.div>
       )}
 
-      {/* 🔊 VO + CC overlay — stays visible while speaking/paused */}
+      {/* 🔊 VO + CC overlay — also visible on loss */}
       <NarrationOverlay
         visible={narrationOverlayVisible}
         statusText={narrator.status.toUpperCase()}

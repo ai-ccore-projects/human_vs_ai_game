@@ -1,3 +1,4 @@
+// src/app/(game)/NameEntryScreen.tsx
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -10,7 +11,7 @@ import { useNarrator } from '@/hooks/useNarrator';
 import NarrationOverlay from '@/components/ui/NarrationOverlay';
 import { INSTRUCTIONS_NARRATION } from '@/utils/narrationScript';
 
-export const NameEntryScreen: React.FC = () => {
+export default function NameEntryScreen() {
   const gameStore = useGameWithLeaderboard();
   const { setLeafFolder, resetImages } = useImageManager();
 
@@ -25,110 +26,60 @@ export const NameEntryScreen: React.FC = () => {
   // narration
   const narrator = useNarrator();
   const [showNarration, setShowNarration] = useState(true);
+  const [needsGesture, setNeedsGesture] = useState(false);
 
-  // guards/timers
-  const mountedOnceRef   = useRef(false);
-  const retryTimeoutRef  = useRef<number | null>(null);
-  const unlockTimeoutRef = useRef<number | null>(null);
+  // guards
+  const mountedOnceRef = useRef(false);
+  const hasSpokenRef = useRef(false);
 
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.split('');
 
-  // ------------------------------------------------------------------
-  // Helpers
-  const isActive = () =>
-    narrator.status === 'speaking' || narrator.status === 'paused';
+  // --- TTS kick-off: speak immediately on mount, with gesture fallback ---
+  const startInstructions = useCallback(() => {
+    // Force CC on and keep overlay shown
+    try { narrator.setCaptionsOn?.(true); } catch {}
+    setShowNarration(true);
+    setNeedsGesture(false);
 
-  const raf = () =>
-    new Promise<void>((r) => requestAnimationFrame(() => r()));
-
-  // Conservative cancel: avoid nuking the OS queue unless we must
-  const softStop = useCallback(() => {
+    // Clear any queued utterances, then start
     try { narrator.stop?.(); } catch {}
+    try { void narrator.start(INSTRUCTIONS_NARRATION); } catch {}
+
+    // If autoplay is blocked, offer a one-tap unlock after a short probe
+    setTimeout(() => {
+      const active = narrator.status === 'speaking' || narrator.status === 'paused';
+      if (!active) setNeedsGesture(true);
+    }, 200);
   }, [narrator]);
 
-  // ▶ Robust kick-off sequence (survives route transitions & autoplay)
-  const startInstructions = useCallback(async () => {
-    setShowNarration(true);
-
-    // Ensure CC on
-    try { narrator.setCaptionsOn?.(true); } catch {}
-
-    // Give the browser a tick to settle after the route change
-    await raf(); await raf();
-    await new Promise((r) => setTimeout(r, 40)); // tiny post-mount delay
-
-    // Clear any leftovers from previous screen
-    softStop();
-
-    try {
-      await narrator.start(INSTRUCTIONS_NARRATION); // waits entire script
-    } catch {
-      // If start() throws, we’ll try a user-gesture unlock below
-    }
-
-    // If autoplay blocked, do one gentle retry shortly after
-    if (!isActive() && retryTimeoutRef.current == null) {
-      retryTimeoutRef.current = window.setTimeout(async () => {
-        if (!isActive()) {
-          softStop();
-          try { await narrator.start(INSTRUCTIONS_NARRATION); } catch {}
-        }
-      }, 300) as unknown as number;
-    }
-
-    // If still not active after ~700ms, hook a one-time gesture unlock
-    if (!isActive() && unlockTimeoutRef.current == null) {
-      const unlock = async () => {
-        softStop();
-        try { await narrator.start(INSTRUCTIONS_NARRATION); } catch {}
-        window.removeEventListener('pointerdown', unlock);
-        window.removeEventListener('keydown', unlock);
-      };
-      window.addEventListener('pointerdown', unlock, { once: true });
-      window.addEventListener('keydown', unlock, { once: true });
-
-      unlockTimeoutRef.current = window.setTimeout(() => {
-        // if user never interacts, we just leave overlay visible but silent
-        window.removeEventListener('pointerdown', unlock);
-        window.removeEventListener('keydown', unlock);
-      }, 5000) as unknown as number;
-    }
-  }, [narrator, softStop]);
-
-  // Kick off narration once on mount
   useEffect(() => {
     if (mountedOnceRef.current) return;
     mountedOnceRef.current = true;
-    void startInstructions();
+    startInstructions(); // 🔊 speak on load
   }, [startInstructions]);
 
-  // Hide overlay automatically when narration is no longer active
+  // Track first time we actually enter "speaking"
   useEffect(() => {
-    if (!isActive()) setShowNarration(false);
+    if (narrator.status === 'speaking') hasSpokenRef.current = true;
   }, [narrator.status]);
 
-  // Cleanup timers
+  // Only hide overlay after we have spoken at least once and returned to idle
   useEffect(() => {
-    return () => {
-      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
-      if (unlockTimeoutRef.current) clearTimeout(unlockTimeoutRef.current);
-      softStop();
-    };
-  }, [softStop]);
+    if (hasSpokenRef.current && narrator.status === 'idle') {
+      setShowNarration(false);
+    }
+  }, [narrator.status]);
 
-  // ------------------------------------------------------------------
-  // Name entry logic
+  // --- Name entry logic ---
   const selectCharacter = useCallback(
     (direction: 'up' | 'down') => {
       setCurrentName((prev) => {
         const next = [...prev];
-        const currentCharIndex = alphabet.indexOf(next[selectedIndex]);
-        if (direction === 'up') {
-          next[selectedIndex] = alphabet[(currentCharIndex + 1) % alphabet.length];
-        } else {
-          next[selectedIndex] =
-            alphabet[currentCharIndex === 0 ? alphabet.length - 1 : currentCharIndex - 1];
-        }
+        const i = alphabet.indexOf(next[selectedIndex]);
+        next[selectedIndex] =
+          direction === 'up'
+            ? alphabet[(i + 1) % alphabet.length]
+            : alphabet[i === 0 ? alphabet.length - 1 : i - 1];
         return next;
       });
     },
@@ -156,7 +107,11 @@ export const NameEntryScreen: React.FC = () => {
   // Keybindings
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      event.preventDefault();
+      const handled =
+        ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','w','W','s','S','a','A','d','D','Enter',' ','Escape'].includes(event.key) ||
+        (event.key.length === 1 && alphabet.includes(event.key.toUpperCase()));
+      if (handled) event.preventDefault();
+
       switch (event.key) {
         case 'ArrowUp':
         case 'w': case 'W': selectCharacter('up'); break;
@@ -250,9 +205,7 @@ export const NameEntryScreen: React.FC = () => {
           transition={{ duration: 0.6, delay: 0.25 }}
           className="w-full max-w-2xl arcade-border p-6 rounded-md"
         >
-          <h3 className="font-arcade text-lg text-glow-blue mb-4 text-center">
-            CHOOSE YOUR ARENA
-          </h3>
+          <h3 className="font-arcade text-lg text-glow-blue mb-4 text-center">CHOOSE YOUR ARENA</h3>
 
           <InterestDropdown value={leafPath} onChange={setLeafPath} label="Pick a domain" />
 
@@ -268,7 +221,7 @@ export const NameEntryScreen: React.FC = () => {
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.4 }}
-          className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-2xl"
+          className="grid grid-cols-1 md:grid-cols-2 gap-6 w/full max-w-2xl"
         >
           <div className="arcade-border p-6 rounded-md">
             <h3 className="font-arcade text-lg text-glow-blue mb-3 text-center">NAVIGATION</h3>
@@ -344,7 +297,7 @@ export const NameEntryScreen: React.FC = () => {
         )}
       </div>
 
-      {/* 🔊 VO + CC overlay — visible while speaking/paused OR until we decide to hide */}
+      {/* Narration overlay – keep visible until we've spoken at least once */}
       <NarrationOverlay
         visible={showNarration || narrator.status === 'speaking' || narrator.status === 'paused'}
         statusText={narrator.status.toUpperCase()}
@@ -353,11 +306,25 @@ export const NameEntryScreen: React.FC = () => {
         onToggleCC={() => narrator.setCaptionsOn?.(!narrator.captionsOn)}
         onPause={narrator.pause}
         onResume={narrator.resume}
-        onSkip={() => { softStop(); setShowNarration(false); }}
+        onSkip={() => { try { narrator.stop(); } catch {} setShowNarration(false); }}
         isPaused={narrator.status === 'paused'}
       />
+
+      {/* One-tap unlock if autoplay is blocked */}
+      {needsGesture && showNarration && (
+        <div className="absolute inset-x-0 bottom-10 z-30 flex justify-center">
+          <button
+            className="btn-neon px-4 py-2"
+            onClick={() => {
+              setNeedsGesture(false);
+              try { narrator.stop(); } catch {}
+              void narrator.start(INSTRUCTIONS_NARRATION);
+            }}
+          >
+            Enable voice & play instructions
+          </button>
+        </div>
+      )}
     </div>
   );
-};
-
-export default NameEntryScreen;
+}

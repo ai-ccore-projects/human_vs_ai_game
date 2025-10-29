@@ -13,7 +13,7 @@ export const WELCOME_NARRATION: NarrationLine[] = [
 
 // 2) Name Entry / Instructions
 export const INSTRUCTIONS_NARRATION: NarrationLine[] = [
-  { cc: "Enter your player name to begin.", text: "Enter your player name to begin." },
+  { cc: "Enter your player name to begin and select your interests", text: "Enter your player name to begin and select your interests" },
 ];
 
 // 3) Gameplay Instruction (first round / screen three)

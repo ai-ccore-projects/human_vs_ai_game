@@ -1,21 +1,33 @@
 // src/hooks/useNarrator.ts
+'use client';
+
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { NarrationLine } from '@/utils/narrationScript';
 
 type NarratorStatus = 'idle' | 'speaking' | 'paused' | 'error';
 
+const isBrowser = typeof window !== 'undefined';
 const LS_KEY = 'narrator.preferredVoiceURI';
 let PREFERRED_VOICE_URI_MEMORY: string | null = null;
 
 function resolvePreferredVoice(voices: SpeechSynthesisVoice[]) {
-  const uri = PREFERRED_VOICE_URI_MEMORY || (() => {
-    try { return localStorage.getItem(LS_KEY); } catch { return null; }
-  })() || null;
+  const saved =
+    PREFERRED_VOICE_URI_MEMORY ??
+    ((): string | null => {
+      try {
+        return localStorage.getItem(LS_KEY);
+      } catch {
+        return null;
+      }
+    })() ??
+    null;
 
   if (!voices.length) return null;
-  if (uri) {
-    const v = voices.find(v => v.voiceURI === uri) || null;
-    if (v) return v;
+  if (saved) {
+    const match = voices.find(v => v.voiceURI === saved) || null;
+    if (match) return match;
   }
+  // pick any English-like voice, else first
   return voices.find(v => /en(-|_|$)/i.test(v.lang)) || voices[0] || null;
 }
 
@@ -27,9 +39,9 @@ export function useNarrator() {
   const synthRef = useRef<SpeechSynthesis | null>(null);
   const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
 
-  // Initialize speech synthesis & voice once
+  // init synth and voice (client-only)
   useEffect(() => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (!isBrowser || !('speechSynthesis' in window)) return;
 
     synthRef.current = window.speechSynthesis;
 
@@ -37,7 +49,9 @@ export function useNarrator() {
       try {
         const voices = window.speechSynthesis.getVoices?.() || [];
         voiceRef.current = resolvePreferredVoice(voices);
-      } catch {}
+      } catch {
+        /* ignore */
+      }
     };
 
     assignVoice();
@@ -48,28 +62,34 @@ export function useNarrator() {
   }, []);
 
   const waitForVoices = useCallback(async (timeoutMs = 3000) => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (!isBrowser || !('speechSynthesis' in window)) return;
     const synth = window.speechSynthesis;
-    const has = () => (synth.getVoices?.() || []).length > 0;
-    if (has()) return;
+    const have = () => (synth.getVoices?.() || []).length > 0;
+    if (have()) return;
 
-    await new Promise<void>((res) => {
-      let done = false;
-      const t = setTimeout(() => { if (!done) { done = true; res(); } }, timeoutMs);
-      const onv = () => {
-        if (!done) {
-          done = true;
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const t = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      }, timeoutMs);
+      const handler = () => {
+        if (!settled) {
+          settled = true;
           clearTimeout(t);
-          synth.removeEventListener('voiceschanged', onv);
-          res();
+          synth.removeEventListener('voiceschanged', handler);
+          resolve();
         }
       };
-      synth.addEventListener('voiceschanged', onv, { once: true });
+      synth.addEventListener('voiceschanged', handler, { once: true } as any);
     });
   }, []);
 
-  /** Persist voice choice (URI) so all screens reuse it. */
+  /** Persist a preferred voice (by object or URI). */
   const setPreferredVoice = useCallback((voiceOrUri: SpeechSynthesisVoice | string | null) => {
+    if (!isBrowser) return;
     let uri: string | null = null;
     if (typeof voiceOrUri === 'string') uri = voiceOrUri;
     else if (voiceOrUri) uri = voiceOrUri.voiceURI;
@@ -78,87 +98,106 @@ export function useNarrator() {
     try {
       if (uri) localStorage.setItem(LS_KEY, uri);
       else localStorage.removeItem(LS_KEY);
-    } catch {}
+    } catch {
+      /* ignore */
+    }
 
     try {
       const voices = window.speechSynthesis.getVoices?.() || [];
       voiceRef.current = resolvePreferredVoice(voices);
-    } catch {}
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   const stop = useCallback(() => {
     try {
       synthRef.current?.cancel();
+    } catch {
+      /* ignore */
+    } finally {
       setStatus('idle');
       setCurrentCaption('');
-    } catch {}
+    }
   }, []);
 
   const pause = useCallback(() => {
     try {
       synthRef.current?.pause();
       setStatus('paused');
-    } catch {}
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   const resume = useCallback(() => {
     try {
       synthRef.current?.resume();
       setStatus('speaking');
-    } catch {}
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   /**
-   * Speak an array of segments (or a single string). Accepts:
-   *  - string
-   *  - [{ text, caption? }] 
-   *  - [{ text, cc? }]   // alias supported
+   * Speak either a string or a sequence of NarrationLine (supports cc + pauseMs).
+   * Resolves when the *entire* sequence (including pauses) finishes.
    */
   const start = useCallback(
-    async (script: { text: string; caption?: string; cc?: string }[] | string): Promise<void> => {
-      // ✅ Ensure synth is ready even if effect hasn't run yet
-      if (!synthRef.current && typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        synthRef.current = window.speechSynthesis;
-      }
+    async (script: string | NarrationLine[]): Promise<void> => {
+      if (!isBrowser || !('speechSynthesis' in window)) return;
+
+      // ensure synth exists (in case effect hasn't run yet)
+      if (!synthRef.current) synthRef.current = window.speechSynthesis;
       const synth = synthRef.current;
       if (!synth) return;
 
-      stop(); // clear any queued items
+      // Clear any queued speech first
+      stop();
 
       await waitForVoices();
 
-      // Normalize segments & support { cc } alias
-      const raw = typeof script === 'string'
-        ? [{ text: script, caption: script }]
-        : script;
-
-      const segments = raw.map((s: any) => ({
-        text: s?.text ?? String(s),
-        caption: s?.caption ?? s?.cc ?? s?.text ?? String(s),
-      }));
+      // Normalize into an array of NarrationLine
+      const lines: NarrationLine[] =
+        typeof script === 'string'
+          ? [{ text: script, cc: script }]
+          : script.map(s => ({
+              text: s.text,
+              cc: s.cc ?? (s as any).caption ?? s.text,
+              pauseMs: s.pauseMs,
+            }));
 
       setStatus('speaking');
 
-      for (const seg of segments) {
+      for (let i = 0; i < lines.length; i++) {
+        const seg = lines[i];
+
         const u = new SpeechSynthesisUtterance(seg.text);
         const v = voiceRef.current;
         if (v) u.voice = v;
 
-        u.onstart = () => {
-          if (captionsOn) setCurrentCaption(seg.caption);
-          setStatus('speaking');
-        };
-        u.onerror = () => setStatus('error');
-
+        // events for this utterance
         const ended = new Promise<void>((resolve) => {
+          u.onstart = () => {
+            if (captionsOn) setCurrentCaption(seg.cc);
+            setStatus('speaking');
+          };
+          u.onerror = () => {
+            setStatus('error');
+            resolve();
+          };
           u.onend = () => {
-            setStatus('idle'); // will flip back to 'speaking' on next segment
             resolve();
           };
         });
 
         synth.speak(u);
         await ended;
+
+        // optional pause after this line
+        if (seg.pauseMs && seg.pauseMs > 0) {
+          await new Promise(r => setTimeout(r, seg.pauseMs));
+        }
       }
 
       // sequence finished
@@ -170,7 +209,7 @@ export function useNarrator() {
 
   return {
     // controls
-    start,
+    start,       // accepts string | NarrationLine[]
     stop,
     pause,
     resume,
