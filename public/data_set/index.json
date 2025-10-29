@@ -1,0 +1,54 @@
+{
+    "domains": [
+      {
+        "key": "classic_paintings",
+        "label": "Classic Paintings",
+        "leaves": [
+          "classic_paintings/charcoal_sketch",
+          "classic_paintings/digital_representations",
+          "classic_paintings/oil_on_canvas",
+          "classic_paintings/watercolor_paintings"
+        ]
+      },
+      {
+        "key": "anime_art",
+        "label": "Anime Art",
+        "leaves": [
+          "anime_art/Hand_drawn",
+          "anime_art/chibi_and_stylized_characters",
+          "anime_art/digital_art",
+          "anime_art/manga_style_ink_work"
+        ]
+      },
+      {
+        "key": "comic_universe",
+        "label": "Comic Universe",
+        "leaves": [
+          "comic_universe/digital_comic_art",
+          "comic_universe/Hand_inked_panels",
+          "comic_universe/poster",
+          "comic_universe/sketch"
+        ]
+      },
+      {
+        "key": "fantasy_mythological_art",
+        "label": "Fantasy / Mythological Art",
+        "leaves": [
+          "fantasy_mythological_art/digital_art",
+          "fantasy_mythological_art/Pencil_and_Ink_Character_Studies",
+          "fantasy_mythological_art/Hand_painted_Fantasy_scenes"
+        ]
+      },
+      {
+        "key": "street_graffiti_art",
+        "label": "Street / Graffiti Art",
+        "leaves": [
+          "street_graffiti_art/digital_and_urban_art",
+          "street_graffiti_art/hand_painted",
+          "street_graffiti_art/spray_paint",
+          "street_graffiti_art/stencil_and_sticker_art"
+        ]
+      }
+    ]
+  }
+  
