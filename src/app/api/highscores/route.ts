@@ -3,17 +3,7 @@ export const runtime = 'nodejs';
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { db } from '@/lib/db';
-
-// DB row type
-type ScoreRow = {
-  id: number;
-  name: string;
-  score: number;
-  round: number;
-  max_combo: number;
-  created_at: number;
-};
+import { prisma } from '@/lib/prisma';
 
 // POST /api/highscores  -> submit score
 const ScoreInput = z.object({
@@ -27,29 +17,33 @@ export async function POST(req: Request) {
   try {
     const json = await req.json();
     const body = ScoreInput.parse(json);
-    const now = Date.now();
+    const fiveSecondsAgo = new Date(Date.now() - 5000);
 
     // Strict-mode/dev safe: dedupe identical submits within 5s
-    const recent = db
-      .prepare(
-        `SELECT COUNT(*) as cnt
-         FROM scores
-         WHERE name = ?
-           AND score = ?
-           AND round = ?
-           AND max_combo = ?
-           AND created_at >= ?`
-      )
-      .get(body.name, body.score, body.round, body.maxCombo, now - 5000) as { cnt?: number } | undefined;
+    const recentCount = await prisma.score.count({
+      where: {
+        name: body.name,
+        score: body.score,
+        round: body.round,
+        maxCombo: body.maxCombo,
+        createdAt: {
+          gte: fiveSecondsAgo
+        }
+      }
+    });
 
-    if (recent?.cnt && recent.cnt > 0) {
+    if (recentCount > 0) {
       return NextResponse.json({ ok: true, deduped: true });
     }
 
-    db.prepare(
-      `INSERT INTO scores (name, score, round, max_combo, created_at)
-       VALUES (?, ?, ?, ?, ?)`
-    ).run(body.name, body.score, body.round, body.maxCombo, now);
+    await prisma.score.create({
+      data: {
+        name: body.name,
+        score: body.score,
+        round: body.round,
+        maxCombo: body.maxCombo,
+      }
+    });
 
     return NextResponse.json({ ok: true });
   } catch (err: any) {
@@ -64,22 +58,28 @@ export async function GET(req: Request) {
     const limitRaw = url.searchParams.get('limit');
     const limit = Math.max(1, Math.min(100, Number(limitRaw ?? 10)));
 
-    const rows = db
-      .prepare(
-        `SELECT id, name, score, round, max_combo, created_at
-         FROM scores
-         ORDER BY score DESC, created_at ASC
-         LIMIT ?`
-      )
-      .all(limit) as ScoreRow[];
+    const scores = await prisma.score.findMany({
+      select: {
+        name: true,
+        score: true,
+        round: true,
+        maxCombo: true,
+        createdAt: true,
+      },
+      orderBy: [
+        { score: 'desc' },
+        { createdAt: 'asc' }
+      ],
+      take: limit
+    });
 
     return NextResponse.json({
-      items: rows.map((r) => ({
-        name: r.name,
-        score: r.score,
-        round: r.round,
-        maxCombo: r.max_combo,
-        createdAt: r.created_at,
+      items: scores.map((score) => ({
+        name: score.name,
+        score: score.score,
+        round: score.round,
+        maxCombo: score.maxCombo,
+        createdAt: score.createdAt.getTime(),
       })),
     });
   } catch (err: any) {
