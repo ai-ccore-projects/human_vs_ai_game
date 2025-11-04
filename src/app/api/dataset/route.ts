@@ -16,19 +16,25 @@ function json(data: unknown, status = 200) {
 }
 
 export async function GET(req: Request) {
-  try {
-    const url = new URL(req.url);
-    const reqPath = (url.searchParams.get('path') || '')
-      .replace(/^\/+|\/+$/g, '')
-      .replace(/\.+/g, '.');
+  const startTime = Date.now();
+  const url = new URL(req.url);
+  const reqPath = (url.searchParams.get('path') || '')
+    .replace(/^\/+|\/+$/g, '')
+    .replace(/\.+/g, '.');
 
+  console.log(`[DATASET API] GET request - Path: "${reqPath || '(root)'}" - ${new Date().toISOString()}`);
+
+  try {
     const manifestUrl = new URL(
       `/data_set/${reqPath ? reqPath + '/' : ''}manifest.json`,
       url.origin
     );
 
+    console.log(`[DATASET API] Fetching manifest: ${manifestUrl.toString()}`);
+
     const res = await fetch(manifestUrl.toString(), { cache: 'no-store' });
     if (!res.ok) {
+      console.log(`[DATASET API] ❌ Manifest not found - Status: ${res.status} - Path: "${reqPath || '(root)'}"`);
       return json(
         {
           error: 'Manifest not found',
@@ -40,8 +46,7 @@ export async function GET(req: Request) {
     }
 
     const m = (await res.json()) as Manifest;
-
-    return json({
+    const response = {
       path: reqPath,
       folders: Array.isArray(m.folders) ? m.folders : [],
       files: {
@@ -54,8 +59,15 @@ export async function GET(req: Request) {
         typeof m.metaFolderName === 'string' || m.metaFolderName === null
           ? m.metaFolderName
           : null,
-    });
+    };
+
+    const duration = Date.now() - startTime;
+    console.log(`[DATASET API] ✅ Success - Path: "${reqPath || '(root)'}" - Files: AI(${response.files.ai_generated.length}), Human(${response.files.human.length}) - Duration: ${duration}ms`);
+
+    return json(response);
   } catch (err: any) {
+    const duration = Date.now() - startTime;
+    console.error(`[DATASET API] ❌ Error - Path: "${reqPath || '(root)'}" - Duration: ${duration}ms - Error:`, err);
     return json({ error: err?.message ?? 'Unexpected error' }, 500);
   }
 }
