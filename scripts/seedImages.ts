@@ -1,5 +1,5 @@
 // scripts/seedImages.ts
-import { db } from '../src/lib/db';
+import { prisma } from '../src/lib/prisma';
 
 const picsumAI = [
   'https://picsum.photos/id/100/1024/1024?blur=2&grayscale',
@@ -27,14 +27,41 @@ const picsumHuman = [
   'https://picsum.photos/id/246/1024/1024',
 ];
 
-const insert = db.prepare(`
-  INSERT OR IGNORE INTO images (url, is_ai, active) VALUES (?, ?, 1)
-`);
+async function seedImages() {
+  try {
+    // Seed AI images
+    for (const url of picsumAI) {
+      await prisma.image.upsert({
+        where: { url },
+        update: {},
+        create: {
+          url,
+          isAi: true,
+          active: true,
+        },
+      });
+    }
 
-db.transaction(() => {
-  picsumAI.forEach((url) => insert.run(url, 1));
-  picsumHuman.forEach((url) => insert.run(url, 0));
-})();
+    // Seed human images
+    for (const url of picsumHuman) {
+      await prisma.image.upsert({
+        where: { url },
+        update: {},
+        create: {
+          url,
+          isAi: false,
+          active: true,
+        },
+      });
+    }
 
-const count = db.prepare('SELECT COUNT(*) as c FROM images').get() as { c: number };
-console.log(`✅ Seed complete. Images in DB: ${count.c}`);
+    const count = await prisma.image.count();
+    console.log(`✅ Seed complete. Images in DB: ${count}`);
+  } catch (error) {
+    console.error('❌ Seed failed:', error);
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+seedImages();
