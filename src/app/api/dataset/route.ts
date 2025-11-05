@@ -1,5 +1,8 @@
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+import fs from 'fs';
+import path from 'path';
 
 type Manifest = {
   folders?: string[];
@@ -25,27 +28,37 @@ export async function GET(req: Request) {
   console.log(`[DATASET API] GET request - Path: "${reqPath || '(root)'}" - ${new Date().toISOString()}`);
 
   try {
-    const manifestUrl = new URL(
-      `/data_set/${reqPath ? reqPath + '/' : ''}manifest.json`,
-      url.origin
+    const manifestPath = path.join(
+      process.cwd(),
+      'public',
+      'data_set',
+      reqPath || '',
+      'manifest.json'
     );
 
-    console.log(`[DATASET API] Fetching manifest: ${manifestUrl.toString()}`);
+    console.log(`[DATASET API] Reading manifest from: ${manifestPath}`);
 
-    const res = await fetch(manifestUrl.toString(), { cache: 'no-store' });
-    if (!res.ok) {
-      console.log(`[DATASET API] ❌ Manifest not found - Status: ${res.status} - Path: "${reqPath || '(root)'}"`);
+    if (!fs.existsSync(manifestPath)) {
+      console.log(`[DATASET API] ❌ Manifest file not found at: ${manifestPath}`);
       return json(
         {
           error: 'Manifest not found',
           path: reqPath || '(root)',
-          expected: `/public/data_set/${reqPath ? reqPath + '/' : ''}manifest.json`,
+          expected: manifestPath,
         },
         404
       );
     }
 
-    const m = (await res.json()) as Manifest;
+    let m: Manifest;
+    try {
+      const manifestContent = fs.readFileSync(manifestPath, 'utf8');
+      m = JSON.parse(manifestContent) as Manifest;
+      console.log(`[DATASET API] ✅ Manifest loaded successfully from file system`);
+    } catch (parseError) {
+      console.log(`[DATASET API] ❌ Failed to parse manifest JSON:`, parseError);
+      return json({ error: 'Invalid manifest format' }, 500);
+    }
     const response = {
       path: reqPath,
       folders: Array.isArray(m.folders) ? m.folders : [],
