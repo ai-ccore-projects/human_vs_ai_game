@@ -9,6 +9,30 @@ export type NarrationLine = {
 export const WELCOME_NARRATION: NarrationLine[] = [
   { cc: "Welcome to AI vs Human!", text: "Welcome to A.I. versus Human!" },
   { cc: "An arcade game of speed and perception.", text: "An arcade game of speed and perception.", pauseMs: 150 },
+  
+  { 
+    cc: "An art collector is searching for rare masterpieces.", 
+    text: "An art collector is searching for rare masterpieces to add to his collection." 
+  },
+  { 
+    cc: "He needs your help to identify which artworks are real and which are AI-generated.", 
+    text: "He needs your help to identify which artworks are real and which are AI-generated." 
+  },
+  { 
+    cc: "Each wrong guess costs him money as compensation to the gallery.", 
+    text: "Each wrong guess costs him money as compensation to the gallery.", 
+    pauseMs: 200 
+  },
+  { 
+    cc: "Choose wisely and guide him through each gallery!", 
+    text: "Choose wisely and guide him through each gallery!", 
+    pauseMs: 200 
+  },
+  { 
+    cc: "Let’s begin your journey through the first gallery...", 
+    text: "Let’s begin your journey through the first gallery!", 
+    pauseMs: 300 
+  },
 ];
 
 // 2) Name Entry / Instructions
