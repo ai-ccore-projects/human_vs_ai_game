@@ -10,6 +10,9 @@
     "seed": "tsx scripts/seedImages.ts"
   },
   "dependencies": {
+    "@libsql/client": "^0.15.15",
+    "@prisma/adapter-libsql": "^6.18.0",
+    "@prisma/client": "^6.18.0",
     "@types/web": "^0.0.267",
     "better-sqlite3": "^12.4.1",
     "framer-motion": "^12.23.12",
@@ -34,6 +37,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "15.5.3",
+    "prisma": "^6.18.0",
     "tailwindcss": "^4",
     "tsx": "^4.20.6",
     "typescript": "^5"
