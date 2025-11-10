@@ -7,23 +7,9 @@ import type { NarrationLine } from '@/utils/narrationScript';
 type NarratorStatus = 'idle' | 'speaking' | 'paused' | 'error';
 
 const isBrowser = typeof window !== 'undefined';
-const LS_KEY = 'narrator.preferredVoiceURI';
-let PREFERRED_VOICE_URI_MEMORY: string | null = null;
 
-function resolvePreferredVoice(voices: SpeechSynthesisVoice[]) {
-  const saved =
-    PREFERRED_VOICE_URI_MEMORY ??
-    ((): string | null => {
-      try { return localStorage.getItem(LS_KEY); } catch { return null; }
-    })() ?? null;
-
-  if (!voices.length) return null;
-  if (saved) {
-    const match = voices.find(v => v.voiceURI === saved) || null;
-    if (match) return match;
-  }
-  return voices.find(v => /en(-|_|$)/i.test(v.lang)) || voices[0] || null;
-}
+// ✅ Change this to the exact name of the voice you want to lock in
+const FIXED_VOICE_NAME = 'Google US English'; // e.g. 'Samantha', 'Microsoft Aria', etc.
 
 export function useNarrator() {
   const [status, setStatus] = useState<NarratorStatus>('idle');
@@ -32,6 +18,11 @@ export function useNarrator() {
 
   const synthRef = useRef<SpeechSynthesis | null>(null);
   const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
+
+  // playback settings
+  const [rate, setRate] = useState(1.0);
+  const [pitch, setPitch] = useState(1.0);
+  const [volume, setVolume] = useState(1.0);
 
   // Token that invalidates any in-flight start() loops when stop() is called
   const playTokenRef = useRef(0);
@@ -44,8 +35,18 @@ export function useNarrator() {
     const assignVoice = () => {
       try {
         const voices = window.speechSynthesis.getVoices?.() || [];
-        voiceRef.current = resolvePreferredVoice(voices);
-      } catch {}
+        // 🎯 Force one fixed voice by name
+        const fixedVoice =
+          voices.find(v => v.name === FIXED_VOICE_NAME) ||
+          voices.find(v => v.name.includes(FIXED_VOICE_NAME)) ||
+          voices[0] ||
+          null;
+
+        voiceRef.current = fixedVoice;
+        console.log('[Narrator] Using fixed voice:', fixedVoice?.name || 'Default');
+      } catch (err) {
+        console.error('Voice assignment failed', err);
+      }
     };
 
     assignVoice();
@@ -78,26 +79,7 @@ export function useNarrator() {
     });
   }, []);
 
-  const setPreferredVoice = useCallback((voiceOrUri: SpeechSynthesisVoice | string | null) => {
-    if (!isBrowser) return;
-    let uri: string | null = null;
-    if (typeof voiceOrUri === 'string') uri = voiceOrUri;
-    else if (voiceOrUri) uri = voiceOrUri.voiceURI;
-
-    PREFERRED_VOICE_URI_MEMORY = uri;
-    try {
-      if (uri) localStorage.setItem(LS_KEY, uri);
-      else localStorage.removeItem(LS_KEY);
-    } catch {}
-
-    try {
-      const voices = window.speechSynthesis.getVoices?.() || [];
-      voiceRef.current = resolvePreferredVoice(voices);
-    } catch {}
-  }, []);
-
   const stop = useCallback(() => {
-    // Invalidate any in-flight start() loop
     playTokenRef.current += 1;
     try { synthRef.current?.cancel(); } catch {}
     setStatus('idle');
@@ -112,25 +94,16 @@ export function useNarrator() {
     try { synthRef.current?.resume(); setStatus('speaking'); } catch {}
   }, []);
 
-  /**
-   * Speak a string or NarrationLine[]. Guarantees single sequence playback.
-   * If stop() is called, ongoing playback halts and this resolves early.
-   */
   const start = useCallback(
     async (script: string | NarrationLine[]): Promise<void> => {
       if (!isBrowser || !('speechSynthesis' in window)) return;
 
-      // Invalidate previous, get my token
       const myToken = ++playTokenRef.current;
-
-      // ensure synth exists
       if (!synthRef.current) synthRef.current = window.speechSynthesis;
       const synth = synthRef.current;
       if (!synth) return;
 
-      // clear any queued speech (safe — we already bumped token)
       try { synth.cancel(); } catch {}
-
       await waitForVoices();
 
       const lines: NarrationLine[] =
@@ -144,40 +117,38 @@ export function useNarrator() {
 
       setStatus('speaking');
 
-      const speakOne = (text: string, cc: string | undefined) =>
+      const speakOne = (text: string, cc?: string) =>
         new Promise<void>((resolve) => {
-          const u = new SpeechSynthesisUtterance(text);
-          const v = voiceRef.current;
-          if (v) u.voice = v;
+          const utterance = new SpeechSynthesisUtterance(text);
+          if (voiceRef.current) utterance.voice = voiceRef.current;
+          utterance.rate = rate;
+          utterance.pitch = pitch;
+          utterance.volume = volume;
 
-          u.onstart = () => {
+          utterance.onstart = () => {
             if (myToken !== playTokenRef.current) { try { synth.cancel(); } catch {}; return resolve(); }
-            if (captionsOn && typeof cc === 'string') setCurrentCaption(cc);
+            if (captionsOn && cc) setCurrentCaption(cc);
             setStatus('speaking');
           };
-          u.onerror = () => {
+          utterance.onerror = () => {
             if (myToken !== playTokenRef.current) return resolve();
             setStatus('error');
             resolve();
           };
-          u.onend = () => {
+          utterance.onend = () => {
             if (myToken !== playTokenRef.current) return resolve();
             resolve();
           };
 
-          // If token changed *before* we speak, bail
           if (myToken !== playTokenRef.current) return resolve();
-          synth.speak(u);
+          synth.speak(utterance);
         });
 
       for (const seg of lines) {
         if (myToken !== playTokenRef.current) break;
         await speakOne(seg.text, seg.cc);
-
         if (myToken !== playTokenRef.current) break;
-        if (seg.pauseMs && seg.pauseMs > 0) {
-          await new Promise(r => setTimeout(r, seg.pauseMs));
-        }
+        if (seg.pauseMs && seg.pauseMs > 0) await new Promise(r => setTimeout(r, seg.pauseMs));
       }
 
       if (myToken === playTokenRef.current) {
@@ -185,7 +156,7 @@ export function useNarrator() {
         setStatus('idle');
       }
     },
-    [captionsOn, waitForVoices]
+    [captionsOn, waitForVoices, rate, pitch, volume]
   );
 
   return {
@@ -194,9 +165,14 @@ export function useNarrator() {
     pause,
     resume,
     setCaptionsOn,
-    setPreferredVoice,
-    status,
     captionsOn,
     currentCaption,
+    status,
+    setRate,
+    setPitch,
+    setVolume,
+    rate,
+    pitch,
+    volume,
   };
 }

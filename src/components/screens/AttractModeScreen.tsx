@@ -151,7 +151,7 @@ const AttractModeScreen: React.FC = () => {
             transition={{ duration: 0.8, delay: 0.6 }}
             className="arcade-border p-8 w-full max-w-md mt-2 rounded-lg"
           >
-            <h3 className="font-arcade text-xl text-glow-green mb-6 text-center">SYSTEM STATUS</h3>
+            {/* <h3 className="font-arcade text-xl text-glow-green mb-6 text-center"></h3> */}
             <div className="font-mono text-base space-y-3">
               <div className="flex justify-between"><span>GRAPHICS:</span><span className="text-glow-cyan">ONLINE</span></div>
               <div className="flex justify-between"><span>AUDIO:</span><span className="text-glow-cyan">ONLINE</span></div>

@@ -36,16 +36,13 @@ export default function NameEntryScreen() {
 
   // --- TTS kick-off: speak immediately on mount, with gesture fallback ---
   const startInstructions = useCallback(() => {
-    // Force CC on and keep overlay shown
     try { narrator.setCaptionsOn?.(true); } catch {}
     setShowNarration(true);
     setNeedsGesture(false);
 
-    // Clear any queued utterances, then start
     try { narrator.stop?.(); } catch {}
     try { void narrator.start(INSTRUCTIONS_NARRATION); } catch {}
 
-    // If autoplay is blocked, offer a one-tap unlock after a short probe
     setTimeout(() => {
       const active = narrator.status === 'speaking' || narrator.status === 'paused';
       if (!active) setNeedsGesture(true);
@@ -55,15 +52,13 @@ export default function NameEntryScreen() {
   useEffect(() => {
     if (mountedOnceRef.current) return;
     mountedOnceRef.current = true;
-    startInstructions(); // 🔊 speak on load
+    startInstructions();
   }, [startInstructions]);
 
-  // Track first time we actually enter "speaking"
   useEffect(() => {
     if (narrator.status === 'speaking') hasSpokenRef.current = true;
   }, [narrator.status]);
 
-  // Only hide overlay after we have spoken at least once and returned to idle
   useEffect(() => {
     if (hasSpokenRef.current && narrator.status === 'idle') {
       setShowNarration(false);
@@ -92,10 +87,19 @@ export default function NameEntryScreen() {
     );
   }, []);
 
-  const confirmName = useCallback(async () => {
-    if (!leafPath) return;
+  // ✅ Enter should ONLY confirm the name (no start)
+  const confirmNameOnly = useCallback(() => {
     const name = currentName.join('');
     gameStore.setPlayerName(name);
+  }, [currentName, gameStore]);
+
+  // ✅ Space should start the game (requires domain)
+  const startGame = useCallback(async () => {
+    if (!leafPath) return; // guard: need a domain selected
+    // ensure name is stored
+    const name = currentName.join('');
+    gameStore.setPlayerName(name);
+
     await setLeafFolder(leafPath);
     resetImages();
     setIsEntering(true);
@@ -122,7 +126,13 @@ export default function NameEntryScreen() {
         case 'ArrowRight':
         case 'd': case 'D': navigatePosition('right'); break;
         case 'Enter':
-        case ' ': confirmName(); break;
+          // ⛔ Do NOT start the game here—only confirm name
+          confirmNameOnly();
+          break;
+        case ' ':
+          // ✅ Space starts the game (if domain picked)
+          void startGame();
+          break;
         case 'Escape': goBack(); break;
         default:
           if (event.key.length === 1 && alphabet.includes(event.key.toUpperCase())) {
@@ -137,7 +147,7 @@ export default function NameEntryScreen() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectCharacter, navigatePosition, confirmName, goBack, selectedIndex, alphabet]);
+  }, [selectCharacter, navigatePosition, confirmNameOnly, startGame, goBack, selectedIndex, alphabet]);
 
   const canStart = currentName.join('').trim().length > 0 && !!leafPath;
 
@@ -208,12 +218,6 @@ export default function NameEntryScreen() {
           <h3 className="font-arcade text-lg text-glow-blue mb-4 text-center">CHOOSE YOUR ARENA</h3>
 
           <InterestDropdown value={leafPath} onChange={setLeafPath} label="Pick a domain" />
-
-          {/* {leafPath && (
-            <div className="text-xs text-white/60 mt-2">
-              Selected: <span className="font-mono">{leafPath}</span>
-            </div>
-          )} */}
         </motion.div>
 
         {/* Controls */}
@@ -250,7 +254,7 @@ export default function NameEntryScreen() {
         >
           <button onClick={goBack} className="btn-neon-red px-8 py-3">← BACK</button>
           <motion.button
-            onClick={confirmName}
+            onClick={startGame}
             disabled={isEntering || !canStart}
             className={`btn-neon pulse-glow px-12 py-3 text-xl ${isEntering || !canStart ? 'opacity-50' : ''}`}
             whileHover={{ scale: 1.05 }}
