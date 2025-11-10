@@ -46,10 +46,9 @@ const GameScreen: React.FC = () => {
   const [isShaking, setIsShaking] = useState(false);
   const [helperStatus, setHelperStatus] = useState<HelperStatus>('idle');
 
-  // Meta state
+  // Meta state (no user-facing error anymore)
   const [metaText, setMetaText] = useState<string | null>(null);
   const [metaLoading, setMetaLoading] = useState(false);
-  const [metaError, setMetaError] = useState<string | null>(null);
 
   // Flow control
   const [canGoNext, setCanGoNext] = useState(false);
@@ -107,7 +106,7 @@ const GameScreen: React.FC = () => {
     setFeedbackMessage(null);
     setHelperStatus('idle');
     setMetaText(null);
-    setMetaError(null);
+    setMetaLoading(false);
     setCanGoNext(false);
     setPair(null);
     void (async () => {
@@ -157,6 +156,33 @@ const GameScreen: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeLeft, gameStore.isPlaying, pair, showResult, showMeta, narrationReady]);
 
+  // ====== metadata fetch helper ======
+  const fetchMeta = useCallback(async (currentPair: GameImagePair | null) => {
+    const num = extractNumberFromPair(currentPair);
+    const leaf = status.leafPath;
+    setMetaText(null);
+    setMetaLoading(true);
+
+    try {
+      if (num && leaf) {
+        const r = await fetch(`/api/meta?path=${encodeURIComponent(leaf)}&num=${encodeURIComponent(num)}`);
+        // Regardless of status code, we only care if it returns { text }
+        const j = await r.json().catch(() => ({}));
+        if (j && typeof j.text === 'string' && j.text.trim().length > 0) {
+          setMetaText(j.text.trim());
+        } else {
+          setMetaText(null); // silence, no panel
+        }
+      } else {
+        setMetaText(null);
+      }
+    } catch {
+      setMetaText(null);
+    } finally {
+      setMetaLoading(false);
+    }
+  }, [status.leafPath]);
+
   // Time out => auto-fail (only after narrationReady)
   useEffect(() => {
     if (!pair || showResult || showMeta || timeLeft > 0 || !narrationReady) return;
@@ -171,28 +197,7 @@ const GameScreen: React.FC = () => {
     setFeedbackMessage(`TIME'S UP! AI WAS ${pair.aiIndex === 0 ? 'LEFT' : 'RIGHT'}`);
     setHelperStatus('wrong');
 
-    const num = extractNumberFromPair(pair);
-    const leaf = status.leafPath;
-    setMetaText(null);
-    setMetaError(null);
-    setMetaLoading(true);
-
-    (async () => {
-      try {
-        if (num && leaf) {
-          const r = await fetch(`/api/meta?path=${encodeURIComponent(leaf)}&num=${encodeURIComponent(num)}`);
-          const j = await r.json();
-          if (r.ok && j?.text) setMetaText(String(j.text).trim());
-          else setMetaError(j?.error || 'No meta info');
-        } else {
-          setMetaError('No meta info');
-        }
-      } catch {
-        setMetaError('Failed to load meta info');
-      } finally {
-        setMetaLoading(false);
-      }
-    })();
+    void fetchMeta(pair);
 
     clearTimers();
     revealTimerRef.current = setTimeout(() => {
@@ -200,7 +205,7 @@ const GameScreen: React.FC = () => {
       setCanGoNext(true);
       autoTimerRef.current = setTimeout(() => proceedToNext(), META_AUTO_ADVANCE_MS);
     }, RESULT_ONLY_MS);
-  }, [timeLeft, pair, showResult, showMeta, status.leafPath, proceedToNext, narrationReady, gameStore]);
+  }, [timeLeft, pair, showResult, showMeta, proceedToNext, narrationReady, gameStore, fetchMeta]);
 
   // Helper mood
   useEffect(() => {
@@ -236,26 +241,7 @@ const GameScreen: React.FC = () => {
         setHelperStatus('wrong');
       }
 
-      const num = extractNumberFromPair(pair);
-      const leaf = status.leafPath;
-      setMetaText(null);
-      setMetaError(null);
-      setMetaLoading(true);
-
-      try {
-        if (num && leaf) {
-          const r = await fetch(`/api/meta?path=${encodeURIComponent(leaf)}&num=${encodeURIComponent(num)}`);
-          const j = await r.json();
-          if (r.ok && j?.text) setMetaText(String(j.text).trim());
-          else setMetaError(j?.error || 'No meta info');
-        } else {
-          setMetaError('No meta info');
-        }
-      } catch {
-        setMetaError('Failed to load meta info');
-      } finally {
-        setMetaLoading(false);
-      }
+      void fetchMeta(pair);
 
       clearTimers();
       revealTimerRef.current = setTimeout(() => {
@@ -264,7 +250,7 @@ const GameScreen: React.FC = () => {
         autoTimerRef.current = setTimeout(() => proceedToNext(), META_AUTO_ADVANCE_MS);
       }, RESULT_ONLY_MS);
     },
-    [pair, showResult, gameStore.isPlaying, gameStore.combo, status.leafPath, proceedToNext, narrationReady]
+    [pair, showResult, gameStore.isPlaying, gameStore.combo, proceedToNext, narrationReady, fetchMeta]
   );
 
   // Hotkeys
@@ -462,9 +448,6 @@ const GameScreen: React.FC = () => {
                 )}
               </AnimatePresence>
             </div>
-            {/* <div className="mt-2 text-center font-arcade text-white opacity-70 group-hover:opacity-100">
-              ← PICK LEFT AS AI
-            </div> */}
           </button>
 
           {/* RIGHT */}
@@ -497,9 +480,6 @@ const GameScreen: React.FC = () => {
                 )}
               </AnimatePresence>
             </div>
-            {/* <div className="mt-2 text-center font-arcade text-white opacity-70 group-hover:opacity-100">
-              PICK RIGHT AS AI →
-            </div> */}
           </button>
         </div>
       </div>
@@ -511,7 +491,6 @@ const GameScreen: React.FC = () => {
             onClick={() => void handlePickSide(0)}
             disabled={!pair || showResult || showMeta || imageLoading || !narrationReady}
             className="bg-red-500 border-red-700 text-white"
-            // hotkey="A"
           >
             LEFT = AI
           </ArcadeButton>
@@ -527,7 +506,6 @@ const GameScreen: React.FC = () => {
             onClick={() => void handlePickSide(1)}
             disabled={!pair || showResult || showMeta || imageLoading || !narrationReady}
             className="bg-blue-500 border-blue-700 text-white"
-            // hotkey="D"
           >
             RIGHT = AI
           </ArcadeButton>
@@ -550,16 +528,18 @@ const GameScreen: React.FC = () => {
 
               {showMeta && (
                 <>
-                  <div className="mt-4 text-left">
-                    <div className="arcade-border bg-black/60 rounded p-3 max-h-56 overflow-y-auto">
-                      <div className="text-lg font-mono text-yellow-300 mb-2">ARTWORK INFO</div>
-                      {metaLoading && <div className="text-sm text-white/80">Loading details…</div>}
-                      {metaError && <div className="text-sm text-red-200">{metaError}</div>}
-                      {!!metaText && (
-                        <div className="text-sm text-white/90 whitespace-pre-wrap">{metaText}</div>
-                      )}
+                  {/* Only show ARTWORK INFO if we have content (or are loading). No errors. */}
+                  {(metaLoading || !!metaText) && (
+                    <div className="mt-4 text-left">
+                      <div className="arcade-border bg-black/60 rounded p-3 max-h-56 overflow-y-auto">
+                        <div className="text-lg font-mono text-yellow-300 mb-2">ARTWORK INFO</div>
+                        {metaLoading && <div className="text-sm text-white/80">Loading details…</div>}
+                        {!!metaText && (
+                          <div className="text-sm text-white/90 whitespace-pre-wrap">{metaText}</div>
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   <div className="mt-4 flex justify-center">
                     <button

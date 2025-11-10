@@ -1,3 +1,4 @@
+// app/api/meta/route.ts
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
@@ -9,32 +10,32 @@ export async function GET(request: Request) {
   const leaf = searchParams.get('path'); // e.g. classic_paintings/oil_on_canvas
   const num = searchParams.get('num');   // e.g. "3"
 
-  console.log(`[META API] GET request - Path: "${leaf}", Num: "${num}" - ${new Date().toISOString()}`);
+  console.log(`[META API] GET - Path: "${leaf}", Num: "${num}"`);
 
   try {
     if (!leaf || !num) {
-      console.log(`[META API] ❌ Missing parameters - Path: "${leaf}", Num: "${num}"`);
-      return NextResponse.json({ error: 'Missing path or num' }, { status: 400 });
+      // No user-facing error; just return no text.
+      return NextResponse.json({ text: null }, { status: 200 });
     }
 
     const filePath = path.join(process.cwd(), 'public', 'data_set', leaf, 'meta_data', `${num}.docx`);
-    console.log(`[META API] Looking for file: ${filePath}`);
+    console.log(`[META API] Checking file: ${filePath}`);
 
     if (!fs.existsSync(filePath)) {
-      console.log(`[META API] ❌ File not found: ${filePath}`);
-      return NextResponse.json({ error: 'File not found' }, { status: 404 });
+      console.log(`[META API] No metadata for ${num}`);
+      // Return empty text; UI will simply not render the info panel.
+      return NextResponse.json({ text: null }, { status: 200 });
     }
 
     const buffer = fs.readFileSync(filePath);
-    const { value: text } = await mammoth.extractRawText({ buffer });
+    const { value: raw } = await mammoth.extractRawText({ buffer });
+    const text = (raw || '').trim();
 
-    const duration = Date.now() - startTime;
-    console.log(`[META API] ✅ Successfully extracted text - Path: "${leaf}", Num: "${num}", Length: ${text.length} chars - Duration: ${duration}ms`);
-
-    return NextResponse.json({ num, text });
-  } catch (err: any) {
-    const duration = Date.now() - startTime;
-    console.error(`[META API] ❌ Error reading metadata - Path: "${leaf}", Num: "${num}" - Duration: ${duration}ms - Error:`, err);
-    return NextResponse.json({ error: 'Failed to load metadata' }, { status: 500 });
+    console.log(`[META API] ✅ Extracted ${text.length} chars in ${Date.now() - startTime}ms`);
+    return NextResponse.json({ text: text || null }, { status: 200 });
+  } catch (err) {
+    console.error(`[META API] ❌ Error`, err);
+    // Still return { text: null } so the UI stays clean.
+    return NextResponse.json({ text: null }, { status: 200 });
   }
 }

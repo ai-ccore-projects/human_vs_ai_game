@@ -311,7 +311,7 @@ export default function NameEntryScreen() {
       />
 
       {/* One-tap unlock if autoplay is blocked */}
-      {needsGesture && showNarration && (
+      {/* {needsGesture && showNarration && (
         <div className="absolute inset-x-0 bottom-10 z-30 flex justify-center">
           <button
             className="btn-neon px-4 py-2"
@@ -324,7 +324,7 @@ export default function NameEntryScreen() {
             Enable voice & play instructions
           </button>
         </div>
-      )}
+      )} */}
     </div>
   );
 }
