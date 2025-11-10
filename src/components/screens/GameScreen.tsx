@@ -462,9 +462,9 @@ const GameScreen: React.FC = () => {
                 )}
               </AnimatePresence>
             </div>
-            <div className="mt-2 text-center font-arcade text-white opacity-70 group-hover:opacity-100">
+            {/* <div className="mt-2 text-center font-arcade text-white opacity-70 group-hover:opacity-100">
               ← PICK LEFT AS AI
-            </div>
+            </div> */}
           </button>
 
           {/* RIGHT */}
@@ -497,9 +497,9 @@ const GameScreen: React.FC = () => {
                 )}
               </AnimatePresence>
             </div>
-            <div className="mt-2 text-center font-arcade text-white opacity-70 group-hover:opacity-100">
+            {/* <div className="mt-2 text-center font-arcade text-white opacity-70 group-hover:opacity-100">
               PICK RIGHT AS AI →
-            </div>
+            </div> */}
           </button>
         </div>
       </div>
@@ -511,7 +511,7 @@ const GameScreen: React.FC = () => {
             onClick={() => void handlePickSide(0)}
             disabled={!pair || showResult || showMeta || imageLoading || !narrationReady}
             className="bg-red-500 border-red-700 text-white"
-            hotkey="A"
+            // hotkey="A"
           >
             LEFT = AI
           </ArcadeButton>
@@ -527,7 +527,7 @@ const GameScreen: React.FC = () => {
             onClick={() => void handlePickSide(1)}
             disabled={!pair || showResult || showMeta || imageLoading || !narrationReady}
             className="bg-blue-500 border-blue-700 text-white"
-            hotkey="D"
+            // hotkey="D"
           >
             RIGHT = AI
           </ArcadeButton>
