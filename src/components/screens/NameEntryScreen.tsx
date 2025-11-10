@@ -209,11 +209,11 @@ export default function NameEntryScreen() {
 
           <InterestDropdown value={leafPath} onChange={setLeafPath} label="Pick a domain" />
 
-          {leafPath && (
+          {/* {leafPath && (
             <div className="text-xs text-white/60 mt-2">
               Selected: <span className="font-mono">{leafPath}</span>
             </div>
-          )}
+          )} */}
         </motion.div>
 
         {/* Controls */}
