@@ -21,6 +21,20 @@ function json(data: unknown, status = 200) {
 }
 
 export async function POST() {
-  const sessionId = newSessionId();
-  return json({ sessionId, createdAt: Date.now() });
+  const startTime = Date.now();
+  console.log(`[SESSION API] POST request - Creating new session - ${new Date().toISOString()}`);
+
+  try {
+    const sessionId = newSessionId();
+    const createdAt = Date.now();
+    const duration = Date.now() - startTime;
+
+    console.log(`[SESSION API] ✅ Session created - ID: ${sessionId} - Duration: ${duration}ms`);
+
+    return json({ sessionId, createdAt });
+  } catch (err: any) {
+    const duration = Date.now() - startTime;
+    console.error(`[SESSION API] ❌ Error creating session - Duration: ${duration}ms - Error:`, err);
+    return json({ error: 'Failed to create session' }, 500);
+  }
 }

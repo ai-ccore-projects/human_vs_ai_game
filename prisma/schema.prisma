@@ -1,0 +1,58 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Score {
+  id        Int      @id @default(autoincrement())
+  name      String
+  score     Int
+  round     Int      @default(1)
+  maxCombo  Int      @map("max_combo") @default(0)
+  createdAt DateTime @map("created_at") @default(now())
+
+  @@index([score(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@map("scores")
+}
+
+model Image {
+  id       Int     @id @default(autoincrement())
+  url      String  @unique
+  isAi     Boolean @map("is_ai") @default(false)
+  active   Boolean @default(true)
+  
+  seenInSessions ImageSessionSeen[]
+
+  @@map("images")
+}
+
+model ImageSession {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @map("created_at") @default(now())
+  
+  seenImages ImageSessionSeen[]
+
+  @@map("image_sessions")
+}
+
+model ImageSessionSeen {
+  id        Int          @id @default(autoincrement())
+  sessionId Int          @map("session_id")
+  imageId   Int          @map("image_id")
+  seenAt    DateTime     @map("seen_at") @default(now())
+  
+  session ImageSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  image   Image        @relation(fields: [imageId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, imageId])
+  @@index([sessionId])
+  @@map("image_session_seen")
+}

@@ -24,25 +24,40 @@ function pick<T>(arr: T[]): T | null {
  * Returns a random pair: { images: [{url,type},{url,type}], aiIndex }
  */
 export async function GET(req: Request) {
+  const startTime = Date.now();
+  const url = new URL(req.url);
+  const reqPath = (url.searchParams.get('path') || '').replace(/^\/+|\/+$/g, '');
+
+  console.log(`[NEXT API] GET request - Path: "${reqPath}" - ${new Date().toISOString()}`);
+
   try {
-    const url = new URL(req.url);
-    const reqPath = (url.searchParams.get('path') || '').replace(/^\/+|\/+$/g, '');
-    if (!reqPath) return json({ error: 'Missing ?path=<top>/<leaf>' }, 400);
+    if (!reqPath) {
+      console.log(`[NEXT API] ❌ Missing path parameter`);
+      return json({ error: 'Missing ?path=<top>/<leaf>' }, 400);
+    }
 
     // Load the leaf manifest that the dataset route also uses
     const manifestUrl = new URL(`/data_set/${reqPath}/manifest.json`, url.origin);
+    console.log(`[NEXT API] Fetching manifest: ${manifestUrl.toString()}`);
+
     const res = await fetch(manifestUrl.toString(), { cache: 'no-store' });
-    if (!res.ok) return json({ error: 'Leaf manifest not found', path: reqPath }, 404);
+    if (!res.ok) {
+      console.log(`[NEXT API] ❌ Manifest not found - Status: ${res.status} - Path: "${reqPath}"`);
+      return json({ error: 'Leaf manifest not found', path: reqPath }, 404);
+    }
 
     const m = (await res.json()) as Manifest;
     const base = m.publicBaseUrl ?? `/data_set/${reqPath}`;
     const ai  = m.files?.ai_generated ?? [];
     const hum = m.files?.human ?? [];
 
+    console.log(`[NEXT API] Available images - AI: ${ai.length}, Human: ${hum.length}`);
+
     // Need at least one from each group
     const aiFile = pick(ai);
     const huFile = pick(hum);
     if (!aiFile || !huFile) {
+      console.log(`[NEXT API] ❌ Insufficient images - AI: ${ai.length}, Human: ${hum.length}`);
       return json(
         {
           error: 'Not enough images in leaf (need ≥1 AI and ≥1 Human)',
@@ -59,6 +74,9 @@ export async function GET(req: Request) {
     images[aiIndex]     = { url: `${base}/ai_generated/${aiFile}`, type: 'ai' };
     images[1 - aiIndex] = { url: `${base}/human/${huFile}`,       type: 'human' };
 
+    const duration = Date.now() - startTime;
+    console.log(`[NEXT API] ✅ Success - Path: "${reqPath}", AI at index: ${aiIndex}, Files: "${aiFile}", "${huFile}" - Duration: ${duration}ms`);
+
     return json({
       images,
       aiIndex,
@@ -67,6 +85,8 @@ export async function GET(req: Request) {
       publicBaseUrl: base,
     });
   } catch (err: any) {
+    const duration = Date.now() - startTime;
+    console.error(`[NEXT API] ❌ Error - Path: "${reqPath}" - Duration: ${duration}ms - Error:`, err);
     return json({ error: err?.message ?? 'Unexpected error' }, 500);
   }
 }
