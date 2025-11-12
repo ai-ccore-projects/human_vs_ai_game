@@ -183,7 +183,7 @@ const AttractModeScreen: React.FC = () => {
         </div>
 
         {/* High score */}
-        {highScore > 0 && (
+        {/* {highScore > 0 && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -192,7 +192,7 @@ const AttractModeScreen: React.FC = () => {
           >
             <div>HIGH SCORE: {highScore.toLocaleString()}</div>
           </motion.div>
-        )}
+        )} */}
       </div>
 
       {/* Narration overlay (visible for full sequence; user can skip) */}

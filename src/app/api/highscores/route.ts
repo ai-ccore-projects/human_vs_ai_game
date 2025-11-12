@@ -1,110 +1,99 @@
 // src/app/api/highscores/route.ts
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 
-// POST /api/highscores  -> submit score
 const ScoreInput = z.object({
+  gameId: z.string().uuid(),
   name: z.string().min(1).max(32),
   score: z.number().int().min(0),
   round: z.number().int().min(1),
   maxCombo: z.number().int().min(0),
 });
 
+// ── POST /api/highscores → submit score ────────────────────────────
 export async function POST(req: Request) {
-  const startTime = Date.now();
+  const started = Date.now();
   console.log(`[HIGHSCORES API] POST request - ${new Date().toISOString()}`);
 
   try {
-    const json = await req.json();
-    const body = ScoreInput.parse(json);
-    const fiveSecondsAgo = new Date(Date.now() - 5000);
+    const body = ScoreInput.parse(await req.json());
 
-    console.log(`[HIGHSCORES API] Submitting score - Name: "${body.name}", Score: ${body.score}, Round: ${body.round}, MaxCombo: ${body.maxCombo}`);
-
-    // Strict-mode/dev safe: dedupe identical submits within 5s
-    const recentCount = await prisma.score.count({
-      where: {
-        name: body.name,
-        score: body.score,
-        round: body.round,
-        maxCombo: body.maxCombo,
-        createdAt: {
-          gte: fiveSecondsAgo
-        }
+    // ✅ Replace your old `upsert` block with this
+    try {
+      await prisma.score.create({
+        data: {
+          gameId: body.gameId,
+          name: body.name,
+          score: body.score,
+          round: body.round,
+          maxCombo: body.maxCombo,
+        },
+      });
+      console.log(
+        `[HIGHSCORES API] ✅ Score saved - gameId: ${body.gameId} - Duration: ${
+          Date.now() - started
+        }ms`
+      );
+    } catch (e: any) {
+      if (e.code === 'P2002' && e.meta?.target?.includes('gameId')) {
+        console.log(
+          `[HIGHSCORES API] ⚠️ Duplicate gameId ${body.gameId} (React Strict Mode double submit) — ignoring`
+        );
+      } else {
+        throw e;
       }
-    });
-
-    if (recentCount > 0) {
-      const duration = Date.now() - startTime;
-      console.log(`[HIGHSCORES API] ⚠️ Duplicate submission detected - Name: "${body.name}" - Duration: ${duration}ms`);
-      return NextResponse.json({ ok: true, deduped: true });
     }
 
-    await prisma.score.create({
-      data: {
-        name: body.name,
-        score: body.score,
-        round: body.round,
-        maxCombo: body.maxCombo,
-      }
-    });
-
-    const duration = Date.now() - startTime;
-    console.log(`[HIGHSCORES API] ✅ Score saved - Name: "${body.name}", Score: ${body.score} - Duration: ${duration}ms`);
-
-    return NextResponse.json({ ok: true });
+    return NextResponse.json(
+      { ok: true },
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
   } catch (err: any) {
-    const duration = Date.now() - startTime;
-    console.error(`[HIGHSCORES API] ❌ Error saving score - Duration: ${duration}ms - Error:`, err);
-    return NextResponse.json({ error: err?.message ?? 'Bad Request' }, { status: 400 });
+    console.error('[HIGHSCORES API] ❌ POST error:', err);
+    return NextResponse.json(
+      { error: err?.message ?? 'Bad Request' },
+      { status: 400, headers: { 'Cache-Control': 'no-store' } }
+    );
   }
 }
 
-// GET /api/highscores?limit=10 -> pull top scores
+// ── GET /api/highscores?limit=10 → pull top scores ────────────────────────────
 export async function GET(req: Request) {
-  const startTime = Date.now();
   const url = new URL(req.url);
-  const limitRaw = url.searchParams.get('limit');
-  const limit = Math.max(1, Math.min(100, Number(limitRaw ?? 10)));
-
-  console.log(`[HIGHSCORES API] GET request - Limit: ${limit} - ${new Date().toISOString()}`);
+  const limit = Math.max(1, Math.min(100, Number(url.searchParams.get('limit') ?? 10)));
 
   try {
-    const scores = await prisma.score.findMany({
-      select: {
-        name: true,
-        score: true,
-        round: true,
-        maxCombo: true,
-        createdAt: true,
-      },
-      orderBy: [
-        { score: 'desc' },
-        { createdAt: 'asc' }
-      ],
-      take: limit
+    // get more than we need, then collapse by gameId
+    const rows = await prisma.score.findMany({
+      select: { gameId: true, name: true, score: true, round: true, maxCombo: true, createdAt: true },
+      orderBy: [{ score: 'desc' }, { createdAt: 'asc' }],
+      take: Math.max(limit * 3, 50),
     });
 
-    const response = {
-      items: scores.map((score) => ({
-        name: score.name,
-        score: score.score,
-        round: score.round,
-        maxCombo: score.maxCombo,
-        createdAt: score.createdAt.getTime(),
+    // keep the first row we see for each gameId
+    const seen = new Set<string>();
+    const deduped: typeof rows = [];
+    for (const r of rows) {
+      if (seen.has(r.gameId)) continue;
+      seen.add(r.gameId);
+      deduped.push(r);
+      if (deduped.length >= limit) break;
+    }
+
+    return NextResponse.json({
+      items: deduped.map(s => ({
+        name: s.name,
+        score: s.score,
+        round: s.round,
+        maxCombo: s.maxCombo,
+        createdAt: s.createdAt.getTime(),
       })),
-    };
-
-    const duration = Date.now() - startTime;
-    console.log(`[HIGHSCORES API] ✅ Retrieved ${scores.length} scores - Duration: ${duration}ms`);
-
-    return NextResponse.json(response);
+    }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (err: any) {
-    const duration = Date.now() - startTime;
-    console.error(`[HIGHSCORES API] ❌ Error retrieving scores - Duration: ${duration}ms - Error:`, err);
     return NextResponse.json({ error: err?.message ?? 'Bad Request' }, { status: 400 });
   }
 }

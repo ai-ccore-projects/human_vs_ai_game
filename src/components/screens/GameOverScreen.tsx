@@ -1,12 +1,17 @@
 // src/components/screens/GameOverScreen.tsx
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useGameWithLeaderboard } from '@/stores/gameStore';
 import { useSubmitScore } from '@/hooks/useSubmitScore';
 import { useHighScores } from '@/hooks/useHighScore';
-import { stopSpeech } from '@/utils/stopSpeech'
+import { stopSpeech } from '@/utils/stopSpeech';
+
+const ensureUuid = () =>
+  (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 const GameOverScreen: React.FC = () => {
   const gameStore = useGameWithLeaderboard();
@@ -19,15 +24,14 @@ const GameOverScreen: React.FC = () => {
 
   // ===== NAVIGATION (no audio/captions) =====
   const handlePlayAgain = () => {
-    stopSpeech();              // extra safety
-    gameStore.startNewGame();  // → GameScreen (per your store)
-    // If you prefer NameEntry first, use: gameStore.setScreen('nameEntry');
+    stopSpeech();
+    gameStore.startNewGame();
   };
 
   const handleMainMenu = () => {
-    stopSpeech();                   // extra safety
+    stopSpeech();
     gameStore.resetGame();
-    gameStore.goToAttractMode();    // → AttractModeScreen
+    gameStore.goToAttractMode();
   };
 
   // Keyboard: Enter = Play Again, Esc = Main Menu
@@ -40,15 +44,30 @@ const GameOverScreen: React.FC = () => {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // ===== SCORE SUBMIT + LEADERBOARD (unchanged) =====
+  // ===== GUARANTEE a stable gameId without setting store during render =====
+  // 1) Create a local stable id the first time we're here
+  const localIdRef = useRef<string>(gameStore.gameId ?? ensureUuid());
+
+  // 2) If the store is missing gameId, set it AFTER render (legal place)
+  useEffect(() => {
+    if (!gameStore.gameId) {
+      // only set once; don't trigger loops
+      gameStore.setGameId?.(localIdRef.current);
+    }
+  }, [gameStore.gameId, gameStore.setGameId]);
+
+  const effectiveGameId = gameStore.gameId ?? localIdRef.current;
+
+  // ===== SCORE SUBMIT + LEADERBOARD =====
   const payload = useMemo(
     () => ({
+      gameId: effectiveGameId,                     // ✅ always a string now
       name: gameStore.playerName || 'AAA',
       score: gameStore.score || 0,
       round: gameStore.round || 1,
       maxCombo: gameStore.maxCombo || 0,
     }),
-    [gameStore.playerName, gameStore.score, gameStore.round, gameStore.maxCombo]
+    [effectiveGameId, gameStore.playerName, gameStore.score, gameStore.round, gameStore.maxCombo]
   );
 
   const { submit, submitting, error: submitError } = useSubmitScore();
@@ -56,7 +75,8 @@ const GameOverScreen: React.FC = () => {
 
   useEffect(() => {
     let cancelled = false;
-    const key = `score:${payload.name}:${payload.score}:${payload.round}:${payload.maxCombo}`;
+    // Use gameId-based key to prevent double-posting in Strict Mode
+    const key = `score:${payload.gameId}`;
     (async () => {
       if (didSubmit) return;
       if (typeof window !== 'undefined' && sessionStorage.getItem(key) === '1') {
@@ -91,6 +111,7 @@ const GameOverScreen: React.FC = () => {
 
       <div className="flex flex-col items-center justify-center min-h-screen w-full max-w-6xl mx-auto px-8 relative z-10">
         <div className="flex flex-col items-center justify-center gap-12 w-full py-8">
+
           {/* Title */}
           <motion.div
             initial={{ opacity: 0, scale: 0.5 }}
@@ -101,7 +122,11 @@ const GameOverScreen: React.FC = () => {
             <h1 className="font-arcade text-6xl md:text-8xl text-glow-red mb-2">LOST</h1>
             <div className="min-h-5">
               {submitting && <div className="font-mono text-sm text-glow-cyan">Saving score…</div>}
-              {submitError && <div className="font-mono text-sm text-red-400">Couldn’t save score (offline?)</div>}
+              {submitError && (
+                <div className="font-mono text-sm text-red-400">
+                  Couldn’t save score (offline?)
+                </div>
+              )}
             </div>
           </motion.div>
 
@@ -146,22 +171,42 @@ const GameOverScreen: React.FC = () => {
                 <div className="text-center text-gray-400 font-mono">No scores yet.</div>
               ) : (
                 <div className="space-y-2">
-                  {top.map((row, i) => (
-                    <div
-                      key={`${row.name}-${row.createdAt}-${i}`}
-                      className={`flex items-center justify-between px-3 py-2 rounded ${
-                        row.name === gameStore.playerName && row.score === gameStore.score
-                          ? 'bg-neon-yellow/20 border border-neon-yellow'
-                          : 'bg-gray-800/50'
-                      }`}
-                    >
-                      <div className="font-mono text-sm text-neon-green flex items-center gap-3">
-                        <span className="text-neon-yellow w-6 text-right">{i + 1}.</span>
-                        <span>{row.name}</span>
+                  {top.map((row, i) => {
+                    const isSelf =
+                      row.name === gameStore.playerName &&
+                      row.score === gameStore.score &&
+                      row.round === gameStore.round &&
+                      row.maxCombo === gameStore.maxCombo;
+
+                    return (
+                      <div
+                        key={`${row.name}-${row.createdAt}-${i}`}
+                        className={`flex items-center justify-between px-3 rounded text-sm font-mono ${
+                          isSelf
+                            ? 'relative border border-neon-cyan bg-gray-800/70 shadow-[0_0_12px_2px_rgba(0,255,255,0.6)]'
+                            : 'bg-gray-800/50'
+                        }`}
+                        style={{ height: '2.25rem' }} // uniform height for all rows
+                        aria-label={isSelf ? 'Your score' : undefined}
+                      >
+                        {/* Rank + Name */}
+                        <div className="flex items-center gap-3 text-neon-green overflow-hidden">
+                          <span className="text-neon-yellow w-6 text-right">{i + 1}.</span>
+                          <span className="truncate">{row.name}</span>
+                        </div>
+
+                        {/* Score (aligned to extreme right) */}
+                        <div className="text-neon-cyan ml-auto tabular-nums">
+                          {row.score.toLocaleString()}
+                        </div>
+
+                        {/* Glow pulse similar to the PLAY AGAIN button */}
+                        {isSelf && (
+                          <div className="absolute inset-0 rounded pointer-events-none pulse-glow" />
+                        )}
                       </div>
-                      <div className="font-mono text-sm text-neon-cyan">{row.score.toLocaleString()}</div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

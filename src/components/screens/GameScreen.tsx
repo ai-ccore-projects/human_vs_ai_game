@@ -19,7 +19,6 @@ type HelperStatus = 'idle' | 'thinking' | 'correct' | 'wrong' | 'anxious';
 
 const RESULT_ONLY_MS = 1200;
 const META_AUTO_ADVANCE_MS = 8000;
-const DEFAULT_ROUND_TIME = 30;
 const BASE_ROUND_TIME = 10;
 
 // 🧠 Compute timer dynamically: halve every 3 rounds, minimum 2 seconds
@@ -31,13 +30,7 @@ const computeRoundTimer = (round: number) => {
 
 const GameScreen: React.FC = () => {
   const gameStore = useGameWithLeaderboard();
-  const {
-    initializeImages,
-    isReady,
-    loadNextPair,
-    isLoading: imageLoading,
-    status,
-  } = useImageManager();
+  const { initializeImages, isReady, loadNextPair, isLoading: imageLoading, status } = useImageManager();
 
   const [pair, setPair] = useState<GameImagePair | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
@@ -46,14 +39,14 @@ const GameScreen: React.FC = () => {
   const [isShaking, setIsShaking] = useState(false);
   const [helperStatus, setHelperStatus] = useState<HelperStatus>('idle');
 
-  // Meta state (no user-facing error anymore)
+  // Meta state — silent failure (no user-facing error)
   const [metaText, setMetaText] = useState<string | null>(null);
   const [metaLoading, setMetaLoading] = useState(false);
 
   // Flow control
   const [canGoNext, setCanGoNext] = useState(false);
   const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const autoTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Local countdown (starts ticking only after narration finishes)
   const [timeLeft, setTimeLeft] = useState<number>(computeRoundTimer(1));
@@ -135,8 +128,7 @@ const GameScreen: React.FC = () => {
     const start = computeRoundTimer(gameStore.round);
     setTimeLeft(start);
     (gameStore as any).setTimer?.(start);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pair, gameStore.maxTimer]);
+  }, [pair, gameStore.maxTimer, gameStore.round]);
 
   // Ticker: runs only while choosing AND after narration finishes
   useEffect(() => {
@@ -153,7 +145,6 @@ const GameScreen: React.FC = () => {
       (gameStore as any).setTimer?.(timeLeft);
       lastPushedTimerRef.current = timeLeft;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeLeft, gameStore.isPlaying, pair, showResult, showMeta, narrationReady]);
 
   // ====== metadata fetch helper ======
@@ -253,9 +244,17 @@ const GameScreen: React.FC = () => {
     [pair, showResult, gameStore.isPlaying, gameStore.combo, proceedToNext, narrationReady, fetchMeta]
   );
 
-  // Hotkeys
+  // ====== Hotkeys (Pause/Resume logic included) ======
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // ▶ Resume with Space when paused
+      if (!gameStore.isPlaying && e.key === ' ') {
+        e.preventDefault();
+        (gameStore as any).resumeGame?.();
+        return;
+      }
+
+      // If still paused and key wasn't Space, ignore
       if (!gameStore.isPlaying) return;
 
       if (!showResult && !showMeta && pair && narrationReady) {
@@ -270,11 +269,13 @@ const GameScreen: React.FC = () => {
         }
       }
 
+      // ⏸ Pause with Esc
       if (e.key === 'Escape') {
         e.preventDefault();
         (gameStore as any).pauseGame?.();
       }
     };
+
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [gameStore.isPlaying, pair, showResult, showMeta, canGoNext, handlePickSide, proceedToNext, narrationReady]);
@@ -326,8 +327,6 @@ const GameScreen: React.FC = () => {
   }, [gameStore.lives, narrator, gameStore]);
 
   // --- render values ---
-  const leftImg  = pair?.images[0];
-  const rightImg = pair?.images[1];
   const roundMax = computeRoundTimer(gameStore.round);
   const timerProgress = Math.max(0, Math.min(100, (timeLeft / roundMax) * 100));
 
@@ -425,11 +424,6 @@ const GameScreen: React.FC = () => {
             className="relative flex-1 max-w-[45%] h-[70vh] group focus:outline-none"
           >
             <div className="w-full h-full rounded-lg overflow-hidden relative border-8 border-black/60 shadow-2xl bg-transparent">
-              <motion.div
-                className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-white/10 to-transparent"
-                animate={{ y: ['-100%', '100%'] }}
-                transition={{ duration: 2.2, repeat: Infinity, ease: 'linear' }}
-              />
               <AnimatePresence mode="wait">
                 {!pair?.images[0] ? (
                   <motion.div key="left-loading" className="absolute inset-0 flex items-center justify-center bg-black/80"
@@ -457,11 +451,6 @@ const GameScreen: React.FC = () => {
             className="relative flex-1 max-w-[45%] h-[70vh] group focus:outline-none"
           >
             <div className="w-full h-full rounded-lg overflow-hidden relative border-8 border-black/60 shadow-2xl bg-transparent">
-              <motion.div
-                className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-white/10 to-transparent"
-                animate={{ y: ['-100%', '100%'] }}
-                transition={{ duration: 2.2, repeat: Infinity, ease: 'linear' }}
-              />
               <AnimatePresence mode="wait">
                 {!pair?.images[1] ? (
                   <motion.div key="right-loading" className="absolute inset-0 flex items-center justify-center bg-black/80"

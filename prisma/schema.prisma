@@ -12,23 +12,22 @@ datasource db {
 
 model Score {
   id        Int      @id @default(autoincrement())
+  gameId    String   @unique
   name      String
   score     Int
-  round     Int      @default(1)
-  maxCombo  Int      @map("max_combo") @default(0)
-  createdAt DateTime @map("created_at") @default(now())
-
-  @@index([score(sort: Desc)])
-  @@index([createdAt(sort: Desc)])
-  @@map("scores")
+  round     Int
+  maxCombo  Int
+  createdAt DateTime @default(now())
 }
 
+
+
 model Image {
-  id       Int     @id @default(autoincrement())
-  url      String  @unique
-  isAi     Boolean @map("is_ai") @default(false)
-  active   Boolean @default(true)
-  
+  id     Int     @id @default(autoincrement())
+  url    String  @unique
+  isAi   Boolean @default(false) @map("is_ai")
+  active Boolean @default(true)
+
   seenInSessions ImageSessionSeen[]
 
   @@map("images")
@@ -36,19 +35,19 @@ model Image {
 
 model ImageSession {
   id        Int      @id @default(autoincrement())
-  createdAt DateTime @map("created_at") @default(now())
-  
+  createdAt DateTime @default(now()) @map("created_at")
+
   seenImages ImageSessionSeen[]
 
   @@map("image_sessions")
 }
 
 model ImageSessionSeen {
-  id        Int          @id @default(autoincrement())
-  sessionId Int          @map("session_id")
-  imageId   Int          @map("image_id")
-  seenAt    DateTime     @map("seen_at") @default(now())
-  
+  id        Int      @id @default(autoincrement())
+  sessionId Int      @map("session_id")
+  imageId   Int      @map("image_id")
+  seenAt    DateTime @default(now()) @map("seen_at")
+
   session ImageSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   image   Image        @relation(fields: [imageId], references: [id], onDelete: Cascade)
 

@@ -4,6 +4,7 @@
 import { useState, useCallback } from 'react';
 
 type SubmitScoreInput = {
+  gameId: string;   // ✅ required by backend
   name: string;
   score: number;
   round: number;
@@ -21,13 +22,19 @@ export function useSubmitScore() {
       const res = await fetch('/api/highscores', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
         body: JSON.stringify(payload),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || 'Failed to submit score');
-      return true;
-    } catch (e: any) {
-      setError(e?.message ?? 'Failed');
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || `Failed to submit score (HTTP ${res.status})`);
+      }
+
+      return true; // success
+    } catch (err: any) {
+      console.error('[useSubmitScore] Error submitting score:', err);
+      setError(err?.message ?? 'Failed to submit score');
       return false;
     } finally {
       setSubmitting(false);
