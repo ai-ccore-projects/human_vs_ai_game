@@ -25,7 +25,7 @@ export const GameRouter: React.FC = () => {
       case 'attract':
       case 'game':
       case 'gameOver':
-        soundManager.playMusic('backgroundMusic');
+        soundManager.playMusic('backgroundMusic',0.08);
         break;
       default:
         soundManager.stopMusic();

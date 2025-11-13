@@ -554,7 +554,6 @@ const GameScreen: React.FC = () => {
         <motion.div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 z-50"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <h2 className="font-arcade text-8xl text-red-500 mb-4 animate-pulse">LOST</h2>
-          <p className="font-arcade text-4xl text-white">THE AI HAS WON</p>
         </motion.div>
       )}
 

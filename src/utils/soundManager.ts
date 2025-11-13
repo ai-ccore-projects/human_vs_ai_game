@@ -202,7 +202,7 @@ export class SoundManager {
   }
 
   /** Start looping background music by buffer name. */
-  public playMusic(soundName: string, volume = 0.3): void {
+  public playMusic(soundName: string, volume = 0.08): void {
     this.ensureAudioContext();
     const ctx = this.audioContext;
     if (!ctx || !this.enabled) return;

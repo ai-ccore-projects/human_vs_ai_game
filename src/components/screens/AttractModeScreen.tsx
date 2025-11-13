@@ -41,7 +41,7 @@ const AttractModeScreen: React.FC = () => {
       const sound = getSound();
       sound.unlock();                  // iOS/Safari
       await sound.initializeSounds();  // load files + generate fallbacks
-      sound.playSound('click');
+      sound.playSound('click',0.3);
     } catch {}
 
     setShowNarration(true);
