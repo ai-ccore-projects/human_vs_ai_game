@@ -297,7 +297,7 @@ const GameScreen: React.FC = () => {
       try {
         narrator.stop();
         await nextTick();
-        await narrator.start([{ text: 'Game over.', cc: 'Game over.' }]);
+        await narrator.start([{ id: 'gameover_1', text: 'Game over.', cc: 'Game over.' }]);
       } catch {
         // ignore; gesture fallback below
       }
@@ -311,7 +311,7 @@ const GameScreen: React.FC = () => {
         try {
           narrator.stop();
           await nextTick();
-          await narrator.start([{ text: 'Game over.', cc: 'Game over.' }]);
+          await narrator.start([{ id: 'gameover_1', text: 'Game over.', cc: 'Game over.' }]);
         } catch {}
       }
       window.removeEventListener('pointerdown', kick);
