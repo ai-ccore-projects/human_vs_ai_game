@@ -6,110 +6,137 @@ import type { NarrationLine } from '@/utils/narrationScript';
 
 type NarratorStatus = 'idle' | 'speaking' | 'paused' | 'error';
 
-const isBrowser = typeof window !== 'undefined';
-
-// ✅ Change this to the exact name of the voice you want to lock in
-const FIXED_VOICE_NAME = 'Google US English'; // e.g. 'Samantha', 'Microsoft Aria', etc.
-
 export function useNarrator() {
   const [status, setStatus] = useState<NarratorStatus>('idle');
   const [captionsOn, setCaptionsOn] = useState<boolean>(true);
   const [currentCaption, setCurrentCaption] = useState<string>('');
 
-  const synthRef = useRef<SpeechSynthesis | null>(null);
-  const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
-
-  // playback settings
-  const [rate, setRate] = useState(1.0);
-  const [pitch, setPitch] = useState(1.0);
-  const [volume, setVolume] = useState(1.0);
-
-  // Token that invalidates any in-flight start() loops when stop() is called
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const playTokenRef = useRef(0);
 
   useEffect(() => {
-    if (!isBrowser || !('speechSynthesis' in window)) return;
-
-    synthRef.current = window.speechSynthesis;
-
-    const assignVoice = () => {
-      try {
-        const voices = window.speechSynthesis.getVoices?.() || [];
-        // 🎯 Force one fixed voice by name
-        const fixedVoice =
-          voices.find(v => v.name === FIXED_VOICE_NAME) ||
-          voices.find(v => v.name.includes(FIXED_VOICE_NAME)) ||
-          voices[0] ||
-          null;
-
-        voiceRef.current = fixedVoice;
-        console.log('[Narrator] Using fixed voice:', fixedVoice?.name || 'Default');
-      } catch (err) {
-        console.error('Voice assignment failed', err);
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
       }
     };
-
-    assignVoice();
-    window.speechSynthesis.addEventListener?.('voiceschanged', assignVoice);
-    return () => {
-      window.speechSynthesis.removeEventListener?.('voiceschanged', assignVoice);
-    };
-  }, []);
-
-  const waitForVoices = useCallback(async (timeoutMs = 3000) => {
-    if (!isBrowser || !('speechSynthesis' in window)) return;
-    const synth = window.speechSynthesis;
-    const have = () => (synth.getVoices?.() || []).length > 0;
-    if (have()) return;
-
-    await new Promise<void>((resolve) => {
-      let settled = false;
-      const t = setTimeout(() => {
-        if (!settled) { settled = true; resolve(); }
-      }, timeoutMs);
-      const handler = () => {
-        if (!settled) {
-          settled = true;
-          clearTimeout(t);
-          synth.removeEventListener('voiceschanged', handler);
-          resolve();
-        }
-      };
-      synth.addEventListener('voiceschanged', handler, { once: true } as any);
-    });
   }, []);
 
   const stop = useCallback(() => {
     playTokenRef.current += 1;
-    try { synthRef.current?.cancel(); } catch {}
+    const audio = audioRef.current;
+    if (audio) {
+      audio.onplay = null;
+      audio.onended = null;
+      audio.onerror = null;
+      audio.pause();
+      audio.src = '';
+    }
+    audioRef.current = null;
     setStatus('idle');
     setCurrentCaption('');
   }, []);
 
   const pause = useCallback(() => {
-    try { synthRef.current?.pause(); setStatus('paused'); } catch {}
+    if (audioRef.current) {
+      audioRef.current.pause();
+      setStatus('paused');
+    }
   }, []);
 
   const resume = useCallback(() => {
-    try { synthRef.current?.resume(); setStatus('speaking'); } catch {}
+    if (audioRef.current) {
+      audioRef.current.play().catch(() => {});
+      setStatus('speaking');
+    }
   }, []);
+
+  const speakOne = useCallback(
+    (id: string, _text: string, cc?: string, token?: number): Promise<void> => {
+      return new Promise((resolve) => {
+        if (token !== undefined && token !== playTokenRef.current) {
+          return resolve();
+        }
+
+        const url = `/sounds/narration/${id}.mp3`;
+        const audio = new Audio();
+        audioRef.current = audio;
+
+        const cleanup = () => {
+          audio.onplay = null;
+          audio.onended = null;
+          audio.onerror = null;
+        };
+
+        audio.onplay = () => {
+          if (token !== undefined && token !== playTokenRef.current) {
+            cleanup();
+            audio.pause();
+            return resolve();
+          }
+          if (captionsOn && cc) setCurrentCaption(cc);
+          setStatus('speaking');
+        };
+
+        audio.onended = () => {
+          cleanup();
+          resolve();
+        };
+
+        audio.onerror = () => {
+          // Only log and set error if we're still the active token
+          if (token === undefined || token === playTokenRef.current) {
+            console.error(`[Narrator] Failed to load static audio: ${url}`);
+            setStatus('error');
+          }
+          cleanup();
+          resolve();
+        };
+
+        audio.src = url;
+
+        // play() returns a promise; AbortError happens when we pause before it starts.
+        // We swallow both AbortError and other play errors gracefully.
+        const playPromise = audio.play();
+        if (playPromise !== undefined) {
+          playPromise.catch((err: Error) => {
+            if (err.name === 'AbortError') {
+              // Expected when stop() is called before play() resolves — not an error
+              return;
+            }
+            if (token === undefined || token === playTokenRef.current) {
+              console.error('[Narrator] play() failed:', err);
+              setStatus('error');
+            }
+            resolve();
+          });
+        }
+      });
+    },
+    [captionsOn]
+  );
 
   const start = useCallback(
     async (script: string | NarrationLine[]): Promise<void> => {
-      if (!isBrowser || !('speechSynthesis' in window)) return;
-
       const myToken = ++playTokenRef.current;
-      if (!synthRef.current) synthRef.current = window.speechSynthesis;
-      const synth = synthRef.current;
-      if (!synth) return;
 
-      try { synth.cancel(); } catch {}
-      await waitForVoices();
+      // Cleanly stop any previous audio without triggering onerror
+      const prev = audioRef.current;
+      if (prev) {
+        prev.onplay = null;
+        prev.onended = null;
+        prev.onerror = null;
+        prev.pause();
+        prev.src = '';
+        audioRef.current = null;
+      }
 
       const lines: NarrationLine[] =
         typeof script === 'string'
-          ? [{ text: script, cc: script }]
+          ? [{ id: 'dynamic', text: script, cc: script }]
           : script.map(s => ({
+              id: (s as any).id || 'dynamic',
               text: s.text,
               cc: (s as any).cc ?? (s as any).caption ?? s.text,
               pauseMs: s.pauseMs,
@@ -117,38 +144,13 @@ export function useNarrator() {
 
       setStatus('speaking');
 
-      const speakOne = (text: string, cc?: string) =>
-        new Promise<void>((resolve) => {
-          const utterance = new SpeechSynthesisUtterance(text);
-          if (voiceRef.current) utterance.voice = voiceRef.current;
-          utterance.rate = rate;
-          utterance.pitch = pitch;
-          utterance.volume = volume;
-
-          utterance.onstart = () => {
-            if (myToken !== playTokenRef.current) { try { synth.cancel(); } catch {}; return resolve(); }
-            if (captionsOn && cc) setCurrentCaption(cc);
-            setStatus('speaking');
-          };
-          utterance.onerror = () => {
-            if (myToken !== playTokenRef.current) return resolve();
-            setStatus('error');
-            resolve();
-          };
-          utterance.onend = () => {
-            if (myToken !== playTokenRef.current) return resolve();
-            resolve();
-          };
-
-          if (myToken !== playTokenRef.current) return resolve();
-          synth.speak(utterance);
-        });
-
       for (const seg of lines) {
         if (myToken !== playTokenRef.current) break;
-        await speakOne(seg.text, seg.cc);
+        await speakOne((seg as any).id, seg.text, seg.cc, myToken);
         if (myToken !== playTokenRef.current) break;
-        if (seg.pauseMs && seg.pauseMs > 0) await new Promise(r => setTimeout(r, seg.pauseMs));
+        if (seg.pauseMs && seg.pauseMs > 0) {
+          await new Promise(r => setTimeout(r, seg.pauseMs));
+        }
       }
 
       if (myToken === playTokenRef.current) {
@@ -156,7 +158,7 @@ export function useNarrator() {
         setStatus('idle');
       }
     },
-    [captionsOn, waitForVoices, rate, pitch, volume]
+    [speakOne]
   );
 
   return {
@@ -168,11 +170,11 @@ export function useNarrator() {
     captionsOn,
     currentCaption,
     status,
-    setRate,
-    setPitch,
-    setVolume,
-    rate,
-    pitch,
-    volume,
+    setRate: () => {},
+    setPitch: () => {},
+    setVolume: () => {},
+    rate: 1,
+    pitch: 1,
+    volume: 1,
   };
 }

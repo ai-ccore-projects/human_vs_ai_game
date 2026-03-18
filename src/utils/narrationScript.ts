@@ -1,5 +1,6 @@
 // src/utils/narrationScript.ts
 export type NarrationLine = {
+  id: string;       // Unique ID for static audio file mapping (e.g. 'welcome_1')
   cc: string;       // caption to display
   text: string;     // what TTS speaks
   pauseMs?: number; // optional pause after the line
@@ -7,42 +8,24 @@ export type NarrationLine = {
 
 // 1) Attract / Welcome
 export const WELCOME_NARRATION: NarrationLine[] = [
-  { cc: "Welcome to AI vs Human!", text: "Welcome to A.I. versus Human!" },
-  { cc: "An arcade game of speed and perception.", text: "An arcade game of speed and perception.", pauseMs: 150 },
-  
-  { 
-    cc: "An art collector is searching for rare masterpieces.", 
-    text: "An art collector is searching for rare masterpieces to add to his collection." 
-  },
-  { 
-    cc: "He needs your help to identify which artworks are real and which are AI-generated.", 
-    text: "He needs your help to identify which artworks are real and which are AI-generated." 
-  },
-  { 
-    cc: "Each wrong guess costs him money as compensation to the gallery.", 
-    text: "Each wrong guess costs him money as compensation to the gallery.", 
-    pauseMs: 200 
-  },
-  { 
-    cc: "Choose wisely and guide him through each gallery!", 
-    text: "Choose wisely and guide him through each gallery!", 
-    pauseMs: 200 
-  },
-  { 
-    cc: "Let’s begin your journey through the first gallery...", 
-    text: "Let’s begin your journey through the first gallery!", 
-    pauseMs: 300 
-  },
+  { id: 'welcome_1', cc: "Welcome to AI vs Human!", text: "Welcome to A.I. versus Human!" },
+  { id: 'welcome_2', cc: "An arcade game of speed and perception.", text: "An arcade game of speed and perception.", pauseMs: 150 },
+  { id: 'welcome_3', cc: "An art collector is searching for rare masterpieces.", text: "An art collector is searching for rare masterpieces to add to his collection." },
+  { id: 'welcome_4', cc: "He needs your help to identify which artworks are real and which are AI-generated.", text: "He needs your help to identify which artworks are real and which are AI-generated." },
+  { id: 'welcome_5', cc: "Each wrong guess costs him money as compensation.", text: "Each wrong guess costs him money as compensation to the gallery.", pauseMs: 200 },
+  { id: 'welcome_6', cc: "Choose wisely and guide him through each gallery!", text: "Choose wisely and guide him through each gallery!", pauseMs: 200 },
+  { id: 'welcome_7', cc: "Let’s begin your journey through the first gallery...", text: "Let’s begin your journey through the first gallery!", pauseMs: 300 },
 ];
 
 // 2) Name Entry / Instructions
 export const INSTRUCTIONS_NARRATION: NarrationLine[] = [
-  { cc: "Enter your player name to begin and select your interests", text: "Enter your player name to begin and select your interests" },
+  { id: 'instructions_1', cc: "Enter your player name to begin and select your interests", text: "Enter your player name to begin and select your interests" },
 ];
 
 // 3) Gameplay Instruction (first round / screen three)
 export const GAME_TIPS_NARRATION: NarrationLine[] = [
   {
+    id: 'tips_1',
     cc: "You will be shown two images. One is human-clicked and the other is AI-generated. Identify the AI image by clicking on it.",
     text: "You will see two images: one is a real human photograph and the other is AI-generated. Select the image you believe was created by AI.",
     pauseMs: 200,
@@ -50,19 +33,8 @@ export const GAME_TIPS_NARRATION: NarrationLine[] = [
 ];
 
 // 4) Game Over / Lost (screen four)
-export const GAME_OVER_NARRATION = (score: number): NarrationLine[] => [
-  {
-    cc: "You lost this round.",
-    text: "You lost this round.",
-    pauseMs: 200,
-  },
-  {
-    cc: "Here is your score: " + score,
-    text: `Here is your score: ${score}`,
-    pauseMs: 200,
-  },
-  {
-    cc: "Try again to improve your performance.",
-    text: "Try again to improve your performance.",
-  },
+export const GAME_OVER_NARRATION: NarrationLine[] = [
+  { id: 'gameover_1', cc: "You lost this round.", text: "You lost this round.", pauseMs: 200 },
+  { id: 'gameover_2', cc: "Check your final score on the screen.", text: "Check your final score on the screen.", pauseMs: 200 },
+  { id: 'gameover_3', cc: "Try again to improve your performance.", text: "Try again to improve your performance." },
 ];

@@ -29,6 +29,7 @@ interface GameStore extends GameState {
 
   // Image management
   setCurrentImage: (image: GameImage | null) => void;
+  setCurrentPair: (pair: any | null) => void;
   loadNextImage: () => void;
 
   // Scoring system
@@ -249,6 +250,7 @@ export const useGameStore = create<GameStore>()(
 
       setCurrentImage: (image: GameImage | null) =>
         set({ currentImage: image, correctAnswer: image?.isAI ?? null }),
+      setCurrentPair: (pair: any) => set({ currentPair: pair }),
       loadNextImage: () => {
         set({ currentImage: null });
         get().resetTimer();

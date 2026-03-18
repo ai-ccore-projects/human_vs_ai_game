@@ -405,3 +405,31 @@ body::before {
 .hide-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/* ========================================
+   TOUCH KIOSK UTILITIES
+======================================== */
+
+.touch-btn {
+  min-height: 60px;
+  padding: 0.75rem 1rem;
+  font-size: 1rem;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.touch-btn:active {
+  transform: scale(0.95);
+  filter: brightness(1.2);
+}
+
+/* Display-only layout (TV) — no interaction, no scrolling */
+.display-only {
+  pointer-events: none;
+  user-select: none;
+  overflow: hidden;
+  width: 100vw;
+  height: 100vh;
+}

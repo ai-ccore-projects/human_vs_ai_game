@@ -124,9 +124,9 @@ export class SoundManager {
         case 'triangle': sample = 2 * Math.abs(2 * (t * frequency - Math.floor(t * frequency + 0.5))) - 1; break;
       }
 
-      // Simple attack/release envelope to avoid clicks
-      const attack = Math.min(0.02, duration * 0.2);
-      const release = Math.min(0.05, duration * 0.3);
+      // Smoother attack/release envelope for headphone safety
+      const attack = Math.min(0.05, duration * 0.3);
+      const release = Math.min(0.1, duration * 0.4);
       const env =
         t < attack
           ? t / attack
@@ -134,7 +134,7 @@ export class SoundManager {
             ? Math.max(0, (duration - t) / release)
             : 1;
 
-      data[i] = sample * env * 0.3; // master gain
+      data[i] = sample * env * 0.05; // much softer master gain
     }
 
     return buffer;
@@ -147,21 +147,19 @@ export class SoundManager {
 
     // File-based (optional; they’ll no-op on SSR)
     await this.loadSound('backgroundMusic', '/sounds/background.mp3');
-    await this.loadSound('correct',         '/sounds/correct.mp3');
-    await this.loadSound('wrong',           '/sounds/wrong.mp3');
-    await this.loadSound('click',           '/sounds/click.mp3');
+    // Harsh UI mp3s removed to fallback to softer generated variants below.
 
-    // Generated fallbacks if not present yet
+    // Generated fallbacks (now softer and subtler for headphones)
     const defs = {
-      correct:     { freq: 800,  duration: 0.2, type: 'sine'     as OscillatorType },
-      wrong:       { freq: 200,  duration: 0.5, type: 'sawtooth' as OscillatorType },
-      combo:       { freq: 1200, duration: 0.3, type: 'triangle' as OscillatorType },
-      gameStart:   { freq: 600,  duration: 0.4, type: 'square'   as OscillatorType },
-      gameOver:    { freq: 150,  duration: 1.0, type: 'sawtooth' as OscillatorType },
-      heartLost:   { freq: 300,  duration: 0.6, type: 'triangle' as OscillatorType },
-      highScore:   { freq: 1000, duration: 0.8, type: 'sine'     as OscillatorType },
-      buttonHover: { freq: 400,  duration: 0.1, type: 'square'   as OscillatorType },
-      tick:        { freq: 500,  duration: 0.05, type: 'square'  as OscillatorType },
+      correct:     { freq: 440,  duration: 0.3, type: 'sine'     as OscillatorType },
+      wrong:       { freq: 150,  duration: 0.4, type: 'sine'     as OscillatorType },
+      combo:       { freq: 660,  duration: 0.3, type: 'sine'     as OscillatorType },
+      gameStart:   { freq: 330,  duration: 0.4, type: 'sine'     as OscillatorType },
+      gameOver:    { freq: 100,  duration: 0.8, type: 'sine'     as OscillatorType },
+      heartLost:   { freq: 200,  duration: 0.5, type: 'sine'     as OscillatorType },
+      highScore:   { freq: 550,  duration: 0.6, type: 'sine'     as OscillatorType },
+      buttonHover: { freq: 300,  duration: 0.1, type: 'sine'     as OscillatorType },
+      tick:        { freq: 350,  duration: 0.05, type: 'sine'    as OscillatorType },
     };
 
     for (const [name, cfg] of Object.entries(defs)) {
