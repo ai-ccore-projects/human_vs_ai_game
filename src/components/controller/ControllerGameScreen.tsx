@@ -15,6 +15,29 @@ import { GAME_TIPS_NARRATION } from '@/utils/narrationScript';
 // Max consecutive unloadable pairs to skip before giving up on a round.
 const MAX_SKIPS = 6;
 
+// A fully-decoded pair, ready to render immediately (used for prefetching the
+// next round while the player is still looking at the current one).
+type PreparedPair = {
+  aiSide: 'left' | 'right';
+  leftImage: { url: string; isAI: boolean };
+  rightImage: { url: string; isAI: boolean };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  currentPair: { images: any[]; aiIndex: number };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  aiImg: any;
+};
+
+// Serve dataset images through Next's on-the-fly image optimizer. The source
+// images are 1–6 MB each; optimized they become ~70 KB WebP (cached after the
+// first hit), which is what actually makes them load fast instead of stalling
+// for ~15s on a fresh multi-MB decode. Non-dataset URLs are returned untouched.
+const OPTIMIZED_WIDTH = 1200; // an allowed Next deviceSize; sharp on the TV too
+const OPTIMIZED_QUALITY = 75;
+function optimized(url: string): string {
+  if (!url || !url.startsWith('/data_set/')) return url;
+  return `/_next/image?url=${encodeURIComponent(url)}&w=${OPTIMIZED_WIDTH}&q=${OPTIMIZED_QUALITY}`;
+}
+
 const ControllerGameScreen: React.FC = () => {
   const store = useGameWithLeaderboard();
   const { soundManager } = useSound();
@@ -30,6 +53,8 @@ const ControllerGameScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [aiSide, setAiSide] = useState<'left' | 'right'>('left');
   const initRef = useRef(false);
+  // Holds the in-flight / already-decoded "next pair" so tapping NEXT is instant.
+  const prefetchPromiseRef = useRef<Promise<PreparedPair | null> | null>(null);
 
   // Initialize and load first pair
   useEffect(() => {
@@ -58,75 +83,112 @@ const ControllerGameScreen: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load the next pair, but ONLY reveal it once both images are fully decoded.
-  // Any pair that cannot be loaded is automatically skipped so the screen never
-  // gets stuck on a blank/broken image — the round always renders something real.
+  // Prepare a fully-decoded, renderable pair WITHOUT touching React/store state.
+  // Any pair that can't be decoded is skipped so we never reveal a broken box.
+  // Returns null if no renderable pair could be produced (e.g. dataset missing).
+  const prepareNextPair = useCallback(
+    async (round: number): Promise<PreparedPair | null> => {
+      for (let skip = 0; skip < MAX_SKIPS; skip++) {
+        try {
+          let pair = await loadNextPair(round);
+
+          // Dataset missing (singleton was reset)? Rebuild from the persisted arena.
+          if (!pair && store.leafPath) {
+            await setLeafFolder(store.leafPath);
+            pair = await loadNextPair(round);
+          }
+          if (!pair) return null;
+
+          const ai = (pair as any).ai ?? (pair as any).images?.find((i: any) => i.isAI);
+          const human = (pair as any).human ?? (pair as any).images?.find((i: any) => !i.isAI);
+          if (!ai?.url || !human?.url) continue; // malformed pair → skip
+
+          // PRELOAD + DECODE both (optimized → ~70KB WebP) before this pair is
+          // ever shown. The resolved URLs flow to the TV via sync too.
+          const [aiUrl, humanUrl] = await Promise.all([
+            preloadImage(optimized(ai.url)),
+            preloadImage(optimized(human.url)),
+          ]);
+          if (!aiUrl || !humanUrl) continue; // couldn't load → skip to the next pair
+
+          const aiImg = { ...ai, url: aiUrl, isAI: true };
+          const humanImg = { ...human, url: humanUrl, isAI: false };
+          const side: 'left' | 'right' = Math.random() < 0.5 ? 'left' : 'right';
+
+          return side === 'left'
+            ? {
+                aiSide: side,
+                leftImage: { url: aiUrl, isAI: true },
+                rightImage: { url: humanUrl, isAI: false },
+                currentPair: { images: [aiImg, humanImg], aiIndex: 0 },
+                aiImg,
+              }
+            : {
+                aiSide: side,
+                leftImage: { url: humanUrl, isAI: false },
+                rightImage: { url: aiUrl, isAI: true },
+                currentPair: { images: [humanImg, aiImg], aiIndex: 1 },
+                aiImg,
+              };
+        } catch (err) {
+          console.error('[ControllerGame] prepareNextPair attempt failed, skipping:', err);
+        }
+      }
+      return null;
+    },
+    [loadNextPair, setLeafFolder, store]
+  );
+
+  // Decode the NEXT pair in the background (during the current round / result
+  // overlay) so the following NEXT tap is instant instead of stalling on a fresh
+  // multi-MB decode. Idempotent — a prefetch already in flight is reused.
+  const prefetchNextPair = useCallback(() => {
+    if (prefetchPromiseRef.current) return;
+    const round = useGameStore.getState().round;
+    prefetchPromiseRef.current = prepareNextPair(round).catch(() => null);
+  }, [prepareNextPair]);
+
+  // Reveal the next pair. Uses the already-decoded prefetched pair when ready
+  // (instant); otherwise decodes on demand. Then warms the pair after it.
   const loadNextImages = useCallback(async () => {
     setLoading(true);
 
-    // Read the round freshly — handleNext() may have just incremented it, and
-    // the captured `store` snapshot would still hold the previous value.
-    const round = useGameStore.getState().round;
-
-    for (let skip = 0; skip < MAX_SKIPS; skip++) {
-      try {
-        let pair = await loadNextPair(round);
-
-        // Dataset missing (singleton was reset)? Rebuild from the persisted arena.
-        if (!pair && store.leafPath) {
-          await setLeafFolder(store.leafPath);
-          pair = await loadNextPair(round);
-        }
-
-        // No dataset at all — we can't play; send the player back to setup.
-        if (!pair) {
-          console.error('[ControllerGame] No dataset available — returning to name entry.');
-          store.setScreen('nameEntry');
-          setLoading(false);
-          return;
-        }
-
-        const ai = (pair as any).ai ?? (pair as any).images?.find((i: any) => i.isAI);
-        const human = (pair as any).human ?? (pair as any).images?.find((i: any) => !i.isAI);
-        if (!ai?.url || !human?.url) continue; // malformed pair → skip
-
-        // PRELOAD + DECODE both before showing anything.
-        const [aiUrl, humanUrl] = await Promise.all([
-          preloadImage(ai.url),
-          preloadImage(human.url),
-        ]);
-        if (!aiUrl || !humanUrl) continue; // couldn't load → skip to the next pair
-
-        const aiImg = { ...ai, url: aiUrl, isAI: true };
-        const humanImg = { ...human, url: humanUrl, isAI: false };
-
-        // Randomly assign AI to left or right
-        const side = Math.random() < 0.5 ? 'left' : 'right';
-        setAiSide(side);
-
-        if (side === 'left') {
-          setLeftImage({ url: aiUrl, isAI: true });
-          setRightImage({ url: humanUrl, isAI: false });
-          store.setCurrentPair({ images: [aiImg, humanImg], aiIndex: 0 });
-        } else {
-          setLeftImage({ url: humanUrl, isAI: false });
-          setRightImage({ url: aiUrl, isAI: true });
-          store.setCurrentPair({ images: [humanImg, aiImg], aiIndex: 1 });
-        }
-
-        store.setCurrentImage(aiImg);
-        store.resetTimer();
-        setLoading(false);
-        return;
-      } catch (err) {
-        console.error('[ControllerGame] loadNextImages attempt failed, skipping:', err);
-      }
+    let prepared: PreparedPair | null = null;
+    if (prefetchPromiseRef.current) {
+      // Resolves instantly if the prefetch already finished; waits if it's still
+      // in flight — either way we never start a second parallel decode.
+      prepared = await prefetchPromiseRef.current;
+      prefetchPromiseRef.current = null;
+    }
+    if (!prepared) {
+      // Read the round freshly — handleNext() may have just incremented it.
+      const round = useGameStore.getState().round;
+      prepared = await prepareNextPair(round);
     }
 
-    // Exhausted our skip budget — surface a non-stuck state rather than hanging.
-    console.error('[ControllerGame] Could not load a renderable pair after retries.');
+    if (!prepared) {
+      // Couldn't render a pair. If there's no dataset at all, recover to setup.
+      if (!useGameStore.getState().leafPath) {
+        console.error('[ControllerGame] No dataset available — returning to name entry.');
+        store.setScreen('nameEntry');
+      } else {
+        console.error('[ControllerGame] Could not load a renderable pair after retries.');
+      }
+      setLoading(false);
+      return;
+    }
+
+    setAiSide(prepared.aiSide);
+    setLeftImage(prepared.leftImage);
+    setRightImage(prepared.rightImage);
+    store.setCurrentPair(prepared.currentPair);
+    store.setCurrentImage(prepared.aiImg);
+    store.resetTimer();
     setLoading(false);
-  }, [loadNextPair, setLeafFolder, store]);
+
+    // Warm the following pair while the player studies this one.
+    prefetchNextPair();
+  }, [prepareNextPair, prefetchNextPair, store]);
 
   const handleGuess = useCallback(
     (guessedSide: 'left' | 'right') => {
