@@ -8,12 +8,17 @@ import { useGameWithLeaderboard } from '@/stores/gameStore';
 import { useImageManager } from '@/hooks/useImageManager';
 import { useNarratorContext } from '@/contexts/NarratorContext';
 import AccessibilityPanel from '@/components/ui/AccessibilityPanel';
+import ReliableImage from '@/components/ui/ReliableImage';
+import { preloadImage } from '@/utils/preloadImage';
 import { GAME_TIPS_NARRATION } from '@/utils/narrationScript';
+
+// Max consecutive unloadable pairs to skip before giving up on a round.
+const MAX_SKIPS = 6;
 
 const ControllerGameScreen: React.FC = () => {
   const store = useGameWithLeaderboard();
   const { soundManager } = useSound();
-  const { loadNextPair, isReady, initializeImages } = useImageManager();
+  const { loadNextPair, isReady, initializeImages, setLeafFolder } = useImageManager();
   const narrator = useNarratorContext();
   const narrationFiredRef = useRef(false);
 
@@ -32,7 +37,14 @@ const ControllerGameScreen: React.FC = () => {
     initRef.current = true;
     (async () => {
       try {
-        if (!isReady) await initializeImages();
+        // Make sure the image manager has a dataset. If it was lost (e.g. a hot
+        // reload reset the singleton), recover from the arena the player picked.
+        if (!isReady) {
+          if (store.leafPath) {
+            try { await setLeafFolder(store.leafPath); } catch { /* recovered below */ }
+          }
+          try { await initializeImages(); } catch { /* handled by loadNextImages */ }
+        }
         await loadNextImages();
         // Play gameplay tips only on the very first round
         if (!narrationFiredRef.current) {
@@ -46,45 +58,71 @@ const ControllerGameScreen: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Load the next pair, but ONLY reveal it once both images are fully decoded.
+  // Any pair that cannot be loaded is automatically skipped so the screen never
+  // gets stuck on a blank/broken image — the round always renders something real.
   const loadNextImages = useCallback(async () => {
     setLoading(true);
-    try {
-      const pair = await loadNextPair();
-      if (!pair) throw new Error('No pair returned');
 
-      const ai = (pair as any).ai ?? (pair as any).images?.find((i: any) => i.isAI);
-      const human = (pair as any).human ?? (pair as any).images?.find((i: any) => !i.isAI);
+    for (let skip = 0; skip < MAX_SKIPS; skip++) {
+      try {
+        let pair = await loadNextPair(store.round);
 
-      if (!ai?.url || !human?.url) throw new Error('Incomplete pair');
+        // Dataset missing (singleton was reset)? Rebuild from the persisted arena.
+        if (!pair && store.leafPath) {
+          await setLeafFolder(store.leafPath);
+          pair = await loadNextPair(store.round);
+        }
 
-      // Randomly assign AI to left or right
-      const side = Math.random() < 0.5 ? 'left' : 'right';
-      setAiSide(side);
+        // No dataset at all — we can't play; send the player back to setup.
+        if (!pair) {
+          console.error('[ControllerGame] No dataset available — returning to name entry.');
+          store.setScreen('nameEntry');
+          setLoading(false);
+          return;
+        }
 
-      if (side === 'left') {
-        setLeftImage({ url: ai.url, isAI: true });
-        setRightImage({ url: human.url, isAI: false });
-        store.setCurrentPair({
-          images: [ai, human],
-          aiIndex: 0,
-        });
-      } else {
-        setLeftImage({ url: human.url, isAI: false });
-        setRightImage({ url: ai.url, isAI: true });
-        store.setCurrentPair({
-          images: [human, ai],
-          aiIndex: 1,
-        });
+        const ai = (pair as any).ai ?? (pair as any).images?.find((i: any) => i.isAI);
+        const human = (pair as any).human ?? (pair as any).images?.find((i: any) => !i.isAI);
+        if (!ai?.url || !human?.url) continue; // malformed pair → skip
+
+        // PRELOAD + DECODE both before showing anything.
+        const [aiUrl, humanUrl] = await Promise.all([
+          preloadImage(ai.url),
+          preloadImage(human.url),
+        ]);
+        if (!aiUrl || !humanUrl) continue; // couldn't load → skip to the next pair
+
+        const aiImg = { ...ai, url: aiUrl, isAI: true };
+        const humanImg = { ...human, url: humanUrl, isAI: false };
+
+        // Randomly assign AI to left or right
+        const side = Math.random() < 0.5 ? 'left' : 'right';
+        setAiSide(side);
+
+        if (side === 'left') {
+          setLeftImage({ url: aiUrl, isAI: true });
+          setRightImage({ url: humanUrl, isAI: false });
+          store.setCurrentPair({ images: [aiImg, humanImg], aiIndex: 0 });
+        } else {
+          setLeftImage({ url: humanUrl, isAI: false });
+          setRightImage({ url: aiUrl, isAI: true });
+          store.setCurrentPair({ images: [humanImg, aiImg], aiIndex: 1 });
+        }
+
+        store.setCurrentImage(aiImg);
+        store.resetTimer();
+        setLoading(false);
+        return;
+      } catch (err) {
+        console.error('[ControllerGame] loadNextImages attempt failed, skipping:', err);
       }
-
-      store.setCurrentImage(ai);
-      store.resetTimer();
-    } catch (err) {
-      console.error('[ControllerGame] loadNextImages error:', err);
-    } finally {
-      setLoading(false);
     }
-  }, [loadNextPair, store]);
+
+    // Exhausted our skip budget — surface a non-stuck state rather than hanging.
+    console.error('[ControllerGame] Could not load a renderable pair after retries.');
+    setLoading(false);
+  }, [loadNextPair, setLeafFolder, store]);
 
   const handleGuess = useCallback(
     (guessedSide: 'left' | 'right') => {
@@ -115,6 +153,12 @@ const ControllerGameScreen: React.FC = () => {
     setFeedbackMsg('');
     await loadNextImages();
   }, [loadNextImages]);
+
+  // Last-resort recovery: an already-decoded image failed at paint time (very
+  // rare browser eviction). Pull a fresh pair instead of leaving a broken box.
+  const handleImageFailure = useCallback(() => {
+    if (!showResult) void loadNextImages();
+  }, [showResult, loadNextImages]);
 
   // Timer ticking logic
   useEffect(() => {
@@ -234,20 +278,19 @@ const ControllerGameScreen: React.FC = () => {
               disabled={loading || showResult}
               className="w-full h-full rounded-lg overflow-hidden relative border-8 border-black/60 shadow-2xl bg-transparent transition-transform active:scale-95 hover:border-red-500/80 disabled:hover:border-black/60 disabled:active:scale-100"
             >
-              <AnimatePresence mode="wait">
-                {!leftImage ? (
-                  <motion.div key="left-loading" className="absolute inset-0 flex items-center justify-center bg-black/80"
-                    initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                    <div className="font-arcade text-4xl text-yellow-400 animate-pulse">LOADING...</div>
-                  </motion.div>
-                ) : (
-                  <motion.div key={leftImage.url} className="w-full h-full"
-                    initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-                    transition={{ duration: 0.35 }}>
-                    <img src={leftImage.url} alt="Left candidate" className="w-full h-full object-cover" />
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              {loading || !leftImage ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+                  <div className="font-arcade text-4xl text-yellow-400 animate-pulse">LOADING...</div>
+                </div>
+              ) : (
+                <ReliableImage
+                  src={leftImage.url}
+                  alt="Left candidate"
+                  className="w-full h-full"
+                  imgClassName="w-full h-full object-cover"
+                  onPermanentError={handleImageFailure}
+                />
+              )}
               <div className="absolute bottom-4 left-4 font-arcade text-2xl text-white bg-black/80 px-3 py-1 rounded border-2 border-red-500">
                 LEFT
               </div>
@@ -272,20 +315,19 @@ const ControllerGameScreen: React.FC = () => {
               disabled={loading || showResult}
               className="w-full h-full rounded-lg overflow-hidden relative border-8 border-black/60 shadow-2xl bg-transparent transition-transform active:scale-95 hover:border-blue-500/80 disabled:hover:border-black/60 disabled:active:scale-100"
             >
-              <AnimatePresence mode="wait">
-                {!rightImage ? (
-                  <motion.div key="right-loading" className="absolute inset-0 flex items-center justify-center bg-black/80"
-                    initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                    <div className="font-arcade text-4xl text-yellow-400 animate-pulse">LOADING...</div>
-                  </motion.div>
-                ) : (
-                  <motion.div key={rightImage.url} className="w-full h-full"
-                    initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-                    transition={{ duration: 0.35 }}>
-                    <img src={rightImage.url} alt="Right candidate" className="w-full h-full object-cover" />
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              {loading || !rightImage ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+                  <div className="font-arcade text-4xl text-yellow-400 animate-pulse">LOADING...</div>
+                </div>
+              ) : (
+                <ReliableImage
+                  src={rightImage.url}
+                  alt="Right candidate"
+                  className="w-full h-full"
+                  imgClassName="w-full h-full object-cover"
+                  onPermanentError={handleImageFailure}
+                />
+              )}
               <div className="absolute bottom-4 right-4 font-arcade text-2xl text-white bg-black/80 px-3 py-1 rounded border-2 border-blue-500">
                 RIGHT
               </div>

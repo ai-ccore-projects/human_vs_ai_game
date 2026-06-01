@@ -18,7 +18,9 @@ const ControllerNameEntryScreen: React.FC = () => {
   const { setLeafFolder, resetImages } = useImageManager();
   const narrator = useNarratorContext();
   const [name, setName] = useState(store.playerName || '');
-  const [leafPath, setLeafPath] = useState<string | null>(null);
+  // Seed from the store so a hot reload / remount restores in-progress setup
+  // instead of dropping the player back to a blank screen.
+  const [leafPath, setLeafPath] = useState<string | null>(store.leafPath || null);
 
   useEffect(() => {
     narrator.start([{ id: 'instructions_1', cc: 'Enter your player name to begin and select your interests', text: 'Enter your player name to begin and select your interests' }]);
@@ -44,12 +46,13 @@ const ControllerNameEntryScreen: React.FC = () => {
 
   const handleArenaChange = useCallback((path: string) => {
     setLeafPath(path);
-  }, []);
+    store.setLeafPath(path); // persist so it survives a reset/reload
+  }, [store]);
 
   const handleStartGame = useCallback(async () => {
     if (name.length < 1 || !leafPath) return;
     store.setPlayerName(name.toUpperCase());
-    (store as any).setLeafPath?.(leafPath);
+    store.setLeafPath(leafPath);
 
     // Initialize image manager with the chosen arena path
     await setLeafFolder(leafPath);

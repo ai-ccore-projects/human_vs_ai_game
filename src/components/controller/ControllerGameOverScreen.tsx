@@ -8,6 +8,8 @@ import { useGameWithLeaderboard } from '@/stores/gameStore';
 import { useNarratorContext } from '@/contexts/NarratorContext';
 import AccessibilityPanel from '@/components/ui/AccessibilityPanel';
 import { GAME_OVER_NARRATION } from '@/utils/narrationScript';
+import { useSubmitScore } from '@/hooks/useSubmitScore';
+import { useHighScores } from '@/hooks/useHighScore';
 
 const ControllerGameOverScreen: React.FC = () => {
   const store = useGameWithLeaderboard();
@@ -15,10 +17,44 @@ const ControllerGameOverScreen: React.FC = () => {
   const narrator = useNarratorContext();
   const stats = store.getStats();
 
+  const { submit } = useSubmitScore();
+  const { items: globalLeaderboard } = useHighScores();
+  const hasSubmitted = React.useRef(false);
+
   useEffect(() => {
     narrator.start(GAME_OVER_NARRATION);
     return () => { narrator.stop(); };
   }, []);
+
+  // Submit score once on mount
+  useEffect(() => {
+    if (!hasSubmitted.current && store.gameId && store.playerName) {
+      hasSubmitted.current = true;
+      submit({
+        gameId: store.gameId,
+        name: store.playerName,
+        score: store.score,
+        round: store.round,
+        maxCombo: store.maxCombo,
+      });
+    }
+  }, [store.gameId, store.playerName, store.score, store.round, store.maxCombo, submit]);
+
+  // Sync global leaderboard to local store (for TV sync).
+  // Depend ONLY on the fetched data — `store` changes identity every render, so
+  // including it here would re-write the leaderboard on every render and loop.
+  useEffect(() => {
+    if (globalLeaderboard && globalLeaderboard.length > 0) {
+      store.setLeaderboard(globalLeaderboard.map(item => ({
+        name: item.name,
+        score: item.score,
+        round: item.round,
+        maxCombo: item.maxCombo,
+        date: new Date(item.createdAt).toISOString(),
+      })));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [globalLeaderboard]);
 
   const handlePlayAgain = useCallback(() => {
     if (soundManager) soundManager.playSound('gameStart', 0.5);

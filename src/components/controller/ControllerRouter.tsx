@@ -30,6 +30,14 @@ export const ControllerRouter: React.FC = () => {
   
   const [isAudioEnabled, setIsAudioEnabled] = React.useState(true);
 
+  // Once the TV has connected at least once, we never unmount the game UI on a
+  // brief presence blip — we just overlay a reconnect banner. This prevents the
+  // active screen (e.g. half-entered initials) from being thrown away.
+  const [everConnected, setEverConnected] = React.useState(false);
+  useEffect(() => {
+    if (room.peerConnected) setEverConnected(true);
+  }, [room.peerConnected]);
+
   useEffect(() => {
     if (soundManager) {
       setIsAudioEnabled(soundManager.isEnabled());
@@ -116,6 +124,9 @@ export const ControllerRouter: React.FC = () => {
       playerName: payload.playerName,
       pairUrl0: payload.currentPair?.images[0]?.url,
       pairUrl1: payload.currentPair?.images[1]?.url,
+      accuracy: payload.accuracy,
+      leaderboardCount: payload.leaderboard.length,
+      leaderboardSum: payload.leaderboard.reduce((acc, row) => acc + row.score, 0),
     });
 
     if (key !== lastBroadcastRef.current) {
@@ -131,6 +142,7 @@ export const ControllerRouter: React.FC = () => {
     store.combo,
     store.timer,
     store.playerName,
+    store.maxCombo,
     store.isPlaying,
     store.currentImage,
     buildSyncPayload,
@@ -161,8 +173,9 @@ export const ControllerRouter: React.FC = () => {
     return <ControllerJoinScreen onJoin={handleJoin} connectionStatus={room.connectionStatus} />;
   }
 
-  // Waiting for TV connection
-  if (!room.peerConnected) {
+  // Waiting for the TV the FIRST time only. After an initial connection we keep
+  // the game mounted and show a reconnect overlay instead (see below).
+  if (!room.peerConnected && !everConnected) {
     return (
       <div className="game-container">
         <div className="screen center">
@@ -228,6 +241,16 @@ export const ControllerRouter: React.FC = () => {
           </motion.div>
         </AnimatePresence>
       </div>
+
+      {/* Non-destructive reconnect banner: shown if the TV drops AFTER we were
+          connected, without unmounting whatever screen the player is on. */}
+      {!room.peerConnected && (
+        <div className="fixed bottom-0 inset-x-0 z-50 bg-red-900/90 border-t border-red-400/50 px-4 py-2">
+          <div className="font-mono text-xs text-center text-red-200 animate-pulse">
+            Reconnecting to TV display… your progress is saved.
+          </div>
+        </div>
+      )}
       </div>
     </NarratorProvider>
   );

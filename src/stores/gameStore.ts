@@ -26,6 +26,7 @@ interface GameStore extends GameState {
   // Player actions
   makeGuess: (isAI: boolean) => void;
   setPlayerName: (name: string) => void;
+  setLeafPath: (leafPath: string | null) => void;
 
   // Image management
   setCurrentImage: (image: GameImage | null) => void;
@@ -75,6 +76,7 @@ const initialGameState: GameState = {
   gameEnded: false,
 
   playerName: '',
+  leafPath: null,
   lives: 2,
   score: 0,
   highScore: 0,
@@ -111,7 +113,8 @@ const newUuid = (): UUID =>
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-export const useGameStore = create<GameStore>()(
+function buildGameStore() {
+  return create<GameStore>()(
   persist(
     (set, get) => ({
       // ✅ not part of GameState, we keep it alongside
@@ -248,6 +251,8 @@ export const useGameStore = create<GameStore>()(
 
       setPlayerName: (name: string) => set({ playerName: name.toUpperCase().slice(0, 3) }),
 
+      setLeafPath: (leafPath: string | null) => set({ leafPath }),
+
       setCurrentImage: (image: GameImage | null) =>
         set({ currentImage: image, correctAnswer: image?.isAI ?? null }),
       setCurrentPair: (pair: any) => set({ currentPair: pair }),
@@ -350,6 +355,7 @@ export const useGameStore = create<GameStore>()(
       // Persist only long-lived prefs/stats; do NOT persist gameId
       partialize: (s) => ({
         playerName: s.playerName,
+        leafPath: s.leafPath,
         highScore: s.highScore,
         soundEnabled: s.soundEnabled,
         fullscreenEnabled: s.fullscreenEnabled,
@@ -362,18 +368,32 @@ export const useGameStore = create<GameStore>()(
       }),
     }
   )
-);
+  );
+}
 
-// Leaderboard store remains unchanged
+// Reuse the same store instances across dev Fast Refresh / HMR. Without this,
+// editing or hot-reloading any module that touches the store re-creates it with
+// initial state — which would snap `screen` back to 'attract' mid-session
+// (the "name entry jumps back to START" bug). In production this is a no-op.
+const __storeRegistry = globalThis as unknown as {
+  __gameStore?: ReturnType<typeof buildGameStore>;
+  __leaderboardStore?: ReturnType<typeof buildLeaderboardStore>;
+};
+
+export const useGameStore = (__storeRegistry.__gameStore ??= buildGameStore());
+
+// Leaderboard store
 interface LeaderboardStore {
   entries: LeaderboardEntry[];
   addEntry: (entry: LeaderboardEntry) => void;
+  setEntries: (entries: LeaderboardEntry[]) => void;
   getTop10: () => LeaderboardEntry[];
   isHighScore: (score: number) => boolean;
   clearAll: () => void;
 }
 
-export const useLeaderboardStore = create<LeaderboardStore>()(
+function buildLeaderboardStore() {
+  return create<LeaderboardStore>()(
   persist(
     (set, get) => ({
       entries: [],
@@ -391,11 +411,15 @@ export const useLeaderboardStore = create<LeaderboardStore>()(
         if (entries.length < 10) return true;
         return score > Math.min(...entries.map((e) => e.score));
       },
+      setEntries: (entries: LeaderboardEntry[]) => set({ entries: entries.slice(0, 10) }),
       clearAll: () => set({ entries: [] }),
     }),
     { name: 'ai-vs-human-leaderboard' }
   )
-);
+  );
+}
+
+export const useLeaderboardStore = (__storeRegistry.__leaderboardStore ??= buildLeaderboardStore());
 
 export const useGameWithLeaderboard = () => {
   const gameStore = useGameStore();
@@ -403,6 +427,7 @@ export const useGameWithLeaderboard = () => {
   return {
     ...gameStore,
     addHighScore: (entry: LeaderboardEntry) => leaderboardStore.addEntry(entry),
+    setLeaderboard: (entries: LeaderboardEntry[]) => leaderboardStore.setEntries(entries),
     getLeaderboard: () => leaderboardStore.getTop10(),
     isHighScore: (score: number) => leaderboardStore.isHighScore(score),
   };

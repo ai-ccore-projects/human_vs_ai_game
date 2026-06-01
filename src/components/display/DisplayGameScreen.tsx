@@ -4,6 +4,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ComboBanner } from '@/components/ui/ComboBanner';
+import ReliableImage from '@/components/ui/ReliableImage';
 import type { GameSyncPayload } from '@/types/room';
 
 interface Props {
@@ -87,20 +88,18 @@ const DisplayGameScreen: React.FC<Props> = ({ state }) => {
           {/* LEFT IMAGE */}
           <div className="relative flex-1 max-w-[47%] h-[70vh]">
             <div className="w-full h-full rounded-lg overflow-hidden relative border-8 border-black/60 shadow-2xl bg-transparent">
-              <AnimatePresence mode="wait">
-                {!pair?.images[0] ? (
-                  <motion.div key="left-loading" className="absolute inset-0 flex items-center justify-center bg-black/80"
-                    initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                    <div className="font-arcade text-4xl text-yellow-400 animate-pulse">LOADING...</div>
-                  </motion.div>
-                ) : (
-                  <motion.div key={pair.images[0].url} className="w-full h-full"
-                    initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-                    transition={{ duration: 0.35 }}>
-                    <img src={pair.images[0].url} alt="Left candidate" className="w-full h-full object-cover" />
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              {!pair?.images[0]?.url ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+                  <div className="font-arcade text-4xl text-yellow-400 animate-pulse">LOADING...</div>
+                </div>
+              ) : (
+                <ReliableImage
+                  src={pair.images[0].url}
+                  alt="Left candidate"
+                  className="w-full h-full"
+                  imgClassName="w-full h-full object-cover"
+                />
+              )}
               {/* Label */}
               <div className="absolute bottom-4 left-4 font-arcade text-2xl text-white bg-black/60 px-3 py-1 rounded">
                 LEFT
@@ -122,20 +121,18 @@ const DisplayGameScreen: React.FC<Props> = ({ state }) => {
           {/* RIGHT IMAGE */}
           <div className="relative flex-1 max-w-[47%] h-[70vh]">
             <div className="w-full h-full rounded-lg overflow-hidden relative border-8 border-black/60 shadow-2xl bg-transparent">
-              <AnimatePresence mode="wait">
-                {!pair?.images[1] ? (
-                  <motion.div key="right-loading" className="absolute inset-0 flex items-center justify-center bg-black/80"
-                    initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                    <div className="font-arcade text-4xl text-yellow-400 animate-pulse">LOADING...</div>
-                  </motion.div>
-                ) : (
-                  <motion.div key={pair.images[1].url} className="w-full h-full"
-                    initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-                    transition={{ duration: 0.35 }}>
-                    <img src={pair.images[1].url} alt="Right candidate" className="w-full h-full object-cover" />
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              {!pair?.images[1]?.url ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+                  <div className="font-arcade text-4xl text-yellow-400 animate-pulse">LOADING...</div>
+                </div>
+              ) : (
+                <ReliableImage
+                  src={pair.images[1].url}
+                  alt="Right candidate"
+                  className="w-full h-full"
+                  imgClassName="w-full h-full object-cover"
+                />
+              )}
               {/* Label */}
               <div className="absolute bottom-4 right-4 font-arcade text-2xl text-white bg-black/60 px-3 py-1 rounded">
                 RIGHT

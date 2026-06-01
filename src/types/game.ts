@@ -57,6 +57,7 @@ export interface GameState {
 
   // Player & score
   playerName: string;      // stored as 3-char uppercase
+  leafPath: string | null; // selected arena/dataset leaf, e.g. "classic_paintings/oil_on_canvas"
   lives: number;
   score: number;
   highScore: number;
