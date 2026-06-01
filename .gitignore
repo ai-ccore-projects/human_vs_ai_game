@@ -20,6 +20,9 @@
 # production
 /build
 
+# local postgres setup (contains the DB password — do not commit)
+/setup-postgres.sh
+
 # misc
 .DS_Store
 *.pem
