@@ -35,7 +35,13 @@ export const ControllerRouter: React.FC = () => {
   // active screen (e.g. half-entered initials) from being thrown away.
   const [everConnected, setEverConnected] = React.useState(false);
   useEffect(() => {
-    if (room.peerConnected) setEverConnected(true);
+    if (room.peerConnected) {
+      setEverConnected(true);
+      // Force the next broadcast to resend the FULL current state. Otherwise a TV
+      // that reloaded or had its socket reconnect stays blank until some game
+      // field happens to change (the dedup below would skip an unchanged state).
+      lastBroadcastRef.current = '';
+    }
   }, [room.peerConnected]);
 
   useEffect(() => {

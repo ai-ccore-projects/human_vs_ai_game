@@ -4,7 +4,7 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSound } from '@/hooks/useSoundManager';
-import { useGameWithLeaderboard } from '@/stores/gameStore';
+import { useGameWithLeaderboard, useGameStore } from '@/stores/gameStore';
 import { useImageManager } from '@/hooks/useImageManager';
 import { useNarratorContext } from '@/contexts/NarratorContext';
 import AccessibilityPanel from '@/components/ui/AccessibilityPanel';
@@ -64,14 +64,18 @@ const ControllerGameScreen: React.FC = () => {
   const loadNextImages = useCallback(async () => {
     setLoading(true);
 
+    // Read the round freshly — handleNext() may have just incremented it, and
+    // the captured `store` snapshot would still hold the previous value.
+    const round = useGameStore.getState().round;
+
     for (let skip = 0; skip < MAX_SKIPS; skip++) {
       try {
-        let pair = await loadNextPair(store.round);
+        let pair = await loadNextPair(round);
 
         // Dataset missing (singleton was reset)? Rebuild from the persisted arena.
         if (!pair && store.leafPath) {
           await setLeafFolder(store.leafPath);
-          pair = await loadNextPair(store.round);
+          pair = await loadNextPair(round);
         }
 
         // No dataset at all — we can't play; send the player back to setup.
@@ -131,12 +135,12 @@ const ControllerGameScreen: React.FC = () => {
       const isCorrect = guessedSide === aiSide;
 
       if (isCorrect) {
-        store.makeGuess(true);
+        store.makeGuess(true, { autoAdvance: false });
         setLastResult('correct');
         setFeedbackMsg('✅ CORRECT!');
         if (soundManager) soundManager.playSound('correct', 0.6);
       } else {
-        store.makeGuess(false);
+        store.makeGuess(false, { autoAdvance: false });
         setLastResult('wrong');
         setFeedbackMsg('❌ WRONG!');
         if (soundManager) soundManager.playSound('wrong', 0.6);
@@ -148,11 +152,15 @@ const ControllerGameScreen: React.FC = () => {
   );
 
   const handleNext = useCallback(async () => {
+    const wasCorrect = lastResult === 'correct';
     setShowResult(false);
     setLastResult(null);
     setFeedbackMsg('');
+    // Advance the round only on a correct answer — matches the original scoring
+    // semantics (the store used to auto-increment round on correct guesses).
+    if (wasCorrect) useGameStore.getState().nextRound();
     await loadNextImages();
-  }, [loadNextImages]);
+  }, [lastResult, loadNextImages]);
 
   // Last-resort recovery: an already-decoded image failed at paint time (very
   // rare browser eviction). Pull a fresh pair instead of leaving a broken box.
@@ -180,6 +188,23 @@ const ControllerGameScreen: React.FC = () => {
       setShowResult(true);
     }
   }, [store.timer, store.isPlaying, loading, showResult, aiSide, soundManager]);
+
+  // Game over: now that makeGuess no longer auto-advances for the controller,
+  // the controller owns the transition to the Game Over screen when lives run
+  // out — covers both a wrong final guess and a final timeout. Reads endGame via
+  // getState and depends only on the primitive `lives` so a re-render during the
+  // delay can't clear the pending timeout.
+  const gameOverHandledRef = useRef(false);
+  useEffect(() => {
+    if (store.lives > 0) {
+      gameOverHandledRef.current = false;
+      return;
+    }
+    if (gameOverHandledRef.current) return;
+    gameOverHandledRef.current = true;
+    const t = setTimeout(() => useGameStore.getState().endGame(), 1500);
+    return () => clearTimeout(t);
+  }, [store.lives]);
 
   // Timer display
   const roundMax = (store as any).maxTimer ?? 10;

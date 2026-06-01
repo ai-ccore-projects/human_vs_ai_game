@@ -24,7 +24,7 @@ interface GameStore extends GameState {
   resumeGame: () => void;
 
   // Player actions
-  makeGuess: (isAI: boolean) => void;
+  makeGuess: (isAI: boolean, opts?: { autoAdvance?: boolean }) => void;
   setPlayerName: (name: string) => void;
   setLeafPath: (leafPath: string | null) => void;
 
@@ -206,7 +206,14 @@ function buildGameStore() {
       resumeGame: () => set({ isPaused: false, isPlaying: true }),
 
       // Player actions
-      makeGuess: (isAI: boolean) => {
+      makeGuess: (isAI: boolean, opts?: { autoAdvance?: boolean }) => {
+        // `autoAdvance` defaults to true so the legacy single-screen GameScreen
+        // keeps its existing behavior. The dual-screen controller passes false:
+        // it owns round progression / game-over itself (NEXT button + effects).
+        // Without this, the store's delayed timers below race the controller's
+        // manual advance and null `currentImage` mid-round — voiding the next
+        // guess and desyncing the score.
+        const autoAdvance = opts?.autoAdvance ?? true;
         const state = get();
         if (!state.currentImage || !state.isPlaying) return;
 
@@ -229,22 +236,26 @@ function buildGameStore() {
           get().addScore(points);
           get().incrementCombo();
           get().updateStats(true);
-          setTimeout(() => {
-            get().nextRound();
-            get().loadNextImage();
-          }, 1000);
+          if (autoAdvance) {
+            setTimeout(() => {
+              get().nextRound();
+              get().loadNextImage();
+            }, 1000);
+          }
         } else {
           get().resetCombo();
           get().loseLife();
           get().updateStats(false);
-          if (state.lives <= 1) {
-            setTimeout(() => {
-              get().endGame();
-            }, 1500);
-          } else {
-            setTimeout(() => {
-              get().loadNextImage();
-            }, 1500);
+          if (autoAdvance) {
+            if (state.lives <= 1) {
+              setTimeout(() => {
+                get().endGame();
+              }, 1500);
+            } else {
+              setTimeout(() => {
+                get().loadNextImage();
+              }, 1500);
+            }
           }
         }
       },
@@ -276,7 +287,9 @@ function buildGameStore() {
         const newTime = Math.max(0, state.timer - 1);
         set({ timer: newTime });
         if (newTime === 0 && state.isPlaying) {
-          get().makeGuess(!state.currentImage?.isAI);
+          // Timeout = an automatic wrong guess. Scoring/lives only — the
+          // controller owns advancing past the result, so don't auto-advance.
+          get().makeGuess(!state.currentImage?.isAI, { autoAdvance: false });
         }
       },
       resetTimer: () => {

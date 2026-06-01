@@ -26,8 +26,15 @@ export const DisplayRouter: React.FC = () => {
     if (initialized) return;
     setInitialized(true);
     (async () => {
-      const code = await room.createRoom();
-      room.joinRoom(code);
+      try {
+        const code = await room.createRoom();
+        room.joinRoom(code);
+      } catch (err) {
+        // createRoom already retried with backoff; if it still failed, allow the
+        // effect to run again so the TV keeps trying instead of dying on boot.
+        console.error('[DisplayRouter] Room creation failed; retrying:', err);
+        setInitialized(false);
+      }
     })();
   }, [initialized, room]);
 

@@ -17,10 +17,25 @@ export function useRoom(role: RoomRole) {
    * Returns the generated 4-digit code.
    */
   const createRoom = useCallback(async (): Promise<string> => {
-    const res = await fetch('/api/room/create', { method: 'POST' });
-    const { code } = await res.json();
-    setRoomCode(code);
-    return code;
+    // Retry with backoff — a transient failure here (e.g. the server briefly
+    // restarting) would otherwise leave the TV stuck on the waiting screen with
+    // no room code, requiring a manual reload at the exhibit.
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const res = await fetch('/api/room/create', { method: 'POST' });
+        if (!res.ok) throw new Error(`room/create HTTP ${res.status}`);
+        const { code } = await res.json();
+        if (!code) throw new Error('room/create returned no code');
+        setRoomCode(code);
+        return code;
+      } catch (err) {
+        lastErr = err;
+        console.error(`[useRoom] createRoom attempt ${attempt + 1} failed:`, err);
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+      }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error('Failed to create room');
   }, []);
 
   /**
