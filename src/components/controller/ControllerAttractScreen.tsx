@@ -30,6 +30,12 @@ const ControllerAttractScreen: React.FC = () => {
       soundManager.playSound('gameStart', 0.5);
     }
     narrator.stop();
+    // Fresh player every session: never inherit the previous player's initials
+    // or arena. START is the only entry into setup, so clearing here guarantees a
+    // blank name field whether arriving from a refresh, a new player, or a
+    // returning Main Menu. (Identity is also no longer persisted to localStorage.)
+    store.setPlayerName('');
+    store.setLeafPath(null);
     store.setScreen('nameEntry');
   }, [soundManager, store, narrator]);
 

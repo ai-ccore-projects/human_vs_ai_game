@@ -365,10 +365,11 @@ function buildGameStore() {
     }),
     {
       name: 'ai-vs-human-game-store',
-      // Persist only long-lived prefs/stats; do NOT persist gameId
+      // Persist only long-lived prefs/stats; do NOT persist gameId.
+      // playerName/leafPath are deliberately NOT persisted — each player must
+      // start from a blank signature; otherwise the previous player's initials
+      // reappear after a refresh or when a new player walks up to the kiosk.
       partialize: (s) => ({
-        playerName: s.playerName,
-        leafPath: s.leafPath,
         highScore: s.highScore,
         soundEnabled: s.soundEnabled,
         fullscreenEnabled: s.fullscreenEnabled,
